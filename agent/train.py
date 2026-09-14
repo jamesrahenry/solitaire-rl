@@ -56,18 +56,22 @@ def epsilon_by_step(
     eps_start: float,
     eps_end: float,
     decay_steps: int,
-    reheat_step: int | None = None,
-    reheat_eps: float = 0.0,
-    reheat_decay_steps: int = 1,
+    reheats: list[tuple[int, float, int]] | None = None,
 ) -> float:
-    """Linear decay from eps_start to eps_end over decay_steps. If
-    reheat_step is set, epsilon jumps to reheat_eps exactly at that step
-    (however low it had already decayed) and linearly decays back down to
-    eps_end over the following reheat_decay_steps - a one-shot "reheat" to
-    re-trigger exploration-driven discovery after the normal decay has
-    settled at its floor, motivated by wins clustering entirely in the
-    high-epsilon regime and stopping dead once epsilon bottoms out."""
-    if reheat_step is not None and step >= reheat_step:
+    """Linear decay from eps_start to eps_end over decay_steps. `reheats` is
+    an optional list of (reheat_step, reheat_eps, reheat_decay_steps)
+    triples - at each reheat_step, epsilon jumps to that reheat_eps (however
+    low it had already decayed) and linearly decays back down to eps_end
+    over the following reheat_decay_steps, re-triggering exploration-driven
+    discovery after the normal decay has settled at its floor. Multiple
+    reheats are supported (e.g. a second, smaller "echo" reheat later in
+    training) - the most recent one whose step has been reached applies."""
+    active = None
+    for reheat_step, reheat_eps, reheat_decay_steps in reheats or []:
+        if step >= reheat_step:
+            active = (reheat_step, reheat_eps, reheat_decay_steps)
+    if active is not None:
+        reheat_step, reheat_eps, reheat_decay_steps = active
         frac = min(1.0, (step - reheat_step) / reheat_decay_steps)
         return reheat_eps + frac * (eps_end - reheat_eps)
     frac = min(1.0, step / decay_steps)
@@ -244,9 +248,27 @@ def main() -> None:
     parser.add_argument("--eps-start", type=float, default=1.0)
     parser.add_argument("--eps-end", type=float, default=0.05)
     parser.add_argument("--eps-decay-steps", type=int, default=200_000)
-    parser.add_argument("--reheat-step", type=int, default=None, help="step at which epsilon jumps back up to --reheat-eps, then decays back to --eps-end over --reheat-decay-steps; omit to disable")
-    parser.add_argument("--reheat-eps", type=float, default=0.4)
-    parser.add_argument("--reheat-decay-steps", type=int, default=50_000)
+    parser.add_argument(
+        "--reheat-step",
+        type=int,
+        action="append",
+        default=None,
+        help="step at which epsilon jumps back up to a --reheat-eps value, then decays back to --eps-end over a --reheat-decay-steps window; repeatable for multiple reheats (e.g. a second, smaller 'echo' reheat later in training). Omit to disable entirely.",
+    )
+    parser.add_argument(
+        "--reheat-eps",
+        type=float,
+        action="append",
+        default=None,
+        help="repeatable, paired positionally with --reheat-step; if given once but --reheat-step given multiple times, that single value is reused for all of them",
+    )
+    parser.add_argument(
+        "--reheat-decay-steps",
+        type=int,
+        action="append",
+        default=None,
+        help="repeatable, paired positionally with --reheat-step; if given once but --reheat-step given multiple times, that single value is reused for all of them",
+    )
     parser.add_argument("--learning-starts", type=int, default=5_000, help="steps before training begins")
     parser.add_argument("--train-freq", type=int, default=4, help="train every N environment steps")
     parser.add_argument(
@@ -288,6 +310,20 @@ def main() -> None:
     parser.add_argument("--resume-step", type=int, default=0, help="the step count that checkpoint was saved at - training continues from resume_step+1, and schedules (epsilon/beta/curriculum) pick up from there instead of restarting")
     parser.add_argument("--run-dir", default=None, help="reuse this exact run directory instead of creating a new numbered one (for resuming: appends to the same stdout.log/metrics.csv/games.jsonl rather than starting fresh)")
     args = parser.parse_args()
+
+    reheat_steps = args.reheat_step or []
+    reheat_epss = args.reheat_eps or []
+    reheat_decays = args.reheat_decay_steps or []
+    if reheat_steps:
+        if len(reheat_epss) == 1:
+            reheat_epss = reheat_epss * len(reheat_steps)
+        if len(reheat_decays) == 1:
+            reheat_decays = reheat_decays * len(reheat_steps)
+        assert len(reheat_steps) == len(reheat_epss) == len(reheat_decays), (
+            "--reheat-step, --reheat-eps, --reheat-decay-steps must be given the same number of times "
+            "(or --reheat-eps/--reheat-decay-steps given once to reuse for every --reheat-step)"
+        )
+    reheats = sorted(zip(reheat_steps, reheat_epss, reheat_decays))
 
     rng = np.random.default_rng(args.seed)
     torch.manual_seed(args.seed)
@@ -398,9 +434,7 @@ def main() -> None:
             args.eps_start,
             args.eps_end,
             args.eps_decay_steps,
-            reheat_step=args.reheat_step,
-            reheat_eps=args.reheat_eps,
-            reheat_decay_steps=args.reheat_decay_steps,
+            reheats=reheats,
         )
         online_net.eval()
         action = select_action(online_net, features, mask, epsilon, rng, args.device)
