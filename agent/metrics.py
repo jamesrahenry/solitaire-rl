@@ -5,6 +5,7 @@ safe to re-run/inspect independently of the training process."""
 from __future__ import annotations
 
 import csv
+import os
 from pathlib import Path
 
 import matplotlib
@@ -164,7 +165,7 @@ class MetricsLogger:
             axes[1, 3].axis("off")
 
         fig.tight_layout()
-        fig.savefig(png_path, dpi=100)
+        _atomic_savefig(fig, png_path)
         plt.close(fig)
 
 
@@ -190,8 +191,23 @@ def plot_eval(csv_path: str, png_path: str) -> None:
     _line(axes[2], steps, [r["eval_mean_foundation"] for r in rows], "Eval mean foundation total", "cards (of 52)", trend=True)
 
     fig.tight_layout()
-    fig.savefig(png_path, dpi=100)
+    _atomic_savefig(fig, png_path)
     plt.close(fig)
+
+
+def _atomic_savefig(fig, png_path: str) -> None:
+    """Write to a temp file in the same directory, then atomically rename
+    over the destination. fig.savefig() writes the destination path
+    directly and non-atomically, so a concurrent reader (an image viewer
+    polling the file - especially over a WSL/Windows mount) can catch it
+    mid-write and see a torn, partially-rendered PNG (rendered top-to-
+    bottom, so a partial read looks like "the top is fine, the bottom is
+    cut off"). os.replace() is atomic on POSIX filesystems: a reader always
+    sees either the complete old file or the complete new one."""
+    path = Path(png_path)
+    tmp_path = path.with_name(path.name + ".tmp")
+    fig.savefig(tmp_path, dpi=100, format="png")  # explicit format: matplotlib infers it from the extension otherwise, and ".tmp" isn't one
+    os.replace(tmp_path, path)
 
 
 def _read_rows(path: Path) -> list[dict]:
