@@ -1,0 +1,16 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+*.Identifier
+
+# per-step model checkpoints are large, regenerable (from the run's logged
+# seed+action games.jsonl, or by re-running training) and not useful to
+# version - keep the lightweight logs/metrics/configs/plots for study instead
+runs/*/checkpoint_*.pt
+runs/bc_pretrained.pt
+
+# scratch dataset cache for agent/behavior_cloning.py, regenerated from
+# runs/curriculum_wins.jsonl on demand
+runs/_bc_cache/
+runs/_smoketest/

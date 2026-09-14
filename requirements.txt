@@ -1,0 +1,6 @@
+gymnasium>=1.3.0
+numpy
+
+# torch is CUDA-build-specific and not installable via a plain requirements.txt line;
+# install separately with:
+#   pip install torch --index-url https://download.pytorch.org/whl/cu124
