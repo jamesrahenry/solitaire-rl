@@ -8,6 +8,7 @@ import csv
 from pathlib import Path
 
 import matplotlib
+import numpy as np
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -140,6 +141,7 @@ class MetricsLogger:
             [r["mean_final_foundation"] for r in rows],
             "Mean final foundation total",
             "cards (of 52)",
+            trend=True,
         )
 
         ax = axes[1, 2]
@@ -181,7 +183,7 @@ def plot_eval(csv_path: str, png_path: str) -> None:
     _line(axes[0], steps, [r["eval_win_rate"] for r in rows], "Eval win rate", "win rate")
     axes[0].set_ylim(0, 1)
     _line(axes[1], steps, [r["eval_mean_return"] for r in rows], "Eval mean return", "return")
-    _line(axes[2], steps, [r["eval_mean_foundation"] for r in rows], "Eval mean foundation total", "cards (of 52)")
+    _line(axes[2], steps, [r["eval_mean_foundation"] for r in rows], "Eval mean foundation total", "cards (of 52)", trend=True)
 
     fig.tight_layout()
     fig.savefig(png_path, dpi=100)
@@ -197,8 +199,26 @@ def _read_rows(path: Path) -> list[dict]:
         return rows
 
 
-def _line(ax, x, y, title, ylabel) -> None:
-    ax.plot(x, y)
+def _rolling_mean(values: list[float], window: int) -> np.ndarray:
+    """Edge-padded rolling mean, same length as the input, so it overlays
+    directly on the raw series (including its first few points) rather than
+    starting partway through or shifting the x-alignment."""
+    arr = np.asarray(values, dtype=float)
+    if len(arr) < 2:
+        return arr
+    window = max(2, min(window, len(arr)))
+    padded = np.concatenate([np.full(window - 1, arr[0]), arr])
+    return np.convolve(padded, np.ones(window) / window, mode="valid")
+
+
+def _line(ax, x, y, title, ylabel, trend: bool = False) -> None:
+    if trend:
+        ax.plot(x, y, alpha=0.35, color="tab:blue", label="raw")
+        window = max(3, len(y) // 10)
+        ax.plot(x, _rolling_mean(y, window), linewidth=2, color="tab:blue", label=f"trend ({window}-pt rolling mean)")
+        ax.legend(fontsize=7, loc="best")
+    else:
+        ax.plot(x, y)
     ax.set_title(title)
     ax.set_xlabel("step")
     ax.set_ylabel(ylabel)
