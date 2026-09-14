@@ -57,11 +57,29 @@ def build_dataset(source: str, preprocess_fn, num_features: int, memmap_dir: str
 
     env = gym.make("Solitaire-v0")
     idx = 0
+    truncated_episodes = 0
+    dropped_steps = 0
     start_time = time.time()
     for i, record in enumerate(records):
         obs, info = env.reset(seed=record["seed"])
-        for action in record["actions"]:
+        for step_num, action in enumerate(record["actions"]):
             f_, m_ = preprocess_fn(obs, info)
+            if not m_[action]:
+                # This action isn't actually legal in the state we just replayed
+                # to - the recorded trajectory has diverged from what this
+                # engine/config produces for this seed (e.g. a curriculum-started
+                # episode: GameLogger only records the agent's tail actions, not
+                # the fast-forwarded initial_moves prefix that preceded them, so
+                # replaying "seed + tail-only actions" from a fresh deal starts
+                # from a different board than the actions were chosen for).
+                # env.step() would silently no-op on an illegal action rather
+                # than raise, which would otherwise poison this and every
+                # subsequent example in the episode with a target action pinned
+                # at the illegal-action mask value in training. Drop the rest of
+                # this episode instead of recording corrupted examples.
+                truncated_episodes += 1
+                dropped_steps += len(record["actions"]) - step_num
+                break
             features[idx] = f_
             masks[idx] = m_
             actions[idx] = action
@@ -74,12 +92,17 @@ def build_dataset(source: str, preprocess_fn, num_features: int, memmap_dir: str
             actions.flush()
             print(f"replayed {i + 1}/{len(records)} episodes, {idx}/{total_steps} steps ({elapsed:.0f}s)")
 
-    assert idx == total_steps, f"replay produced {idx} steps, expected {total_steps} - a logged action must have diverged"
+    if truncated_episodes:
+        print(
+            f"WARNING: {truncated_episodes}/{len(records)} episodes diverged from their recorded actions "
+            f"(most likely missing a curriculum fast-forward prefix) - dropped {dropped_steps} steps from "
+            f"the point of divergence onward rather than record them as corrupted training examples"
+        )
     features.flush()
     masks.flush()
     actions.flush()
     env.close()
-    return features, masks, actions
+    return features[:idx], masks[:idx], actions[:idx]
 
 
 def train_bc(net, features, masks, actions, epochs, batch_size, lr, device, val_frac, seed):
