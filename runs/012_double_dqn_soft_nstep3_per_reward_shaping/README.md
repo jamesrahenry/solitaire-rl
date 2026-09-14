@@ -1,0 +1,60 @@
+# Run: reward_shaping
+
+- **Started:** 2026-09-14T09:39:46
+- **Git commit:** e391b19e12db2264ec6f486e0f404d9031a2538f (dirty working tree)
+
+## Notes
+
+Cold-start test of the reshaped reward function alone (10x rescale + king-on-empty/column-uncovered/column-emptied milestone bonuses + win bonus raised 100->5000), isolated from BC/curriculum warm-start. Otherwise our cleanest baseline: Double DQN, soft target updates, n-step=3, PER, raw card encoding, hidden-layers=2, undo allowed. Compare eval win rate and mean_foundation trend directly against runs 001-011, all of which were flat 0.00% under the old reward function.
+
+## Config
+
+| key | value |
+|---|---|
+| steps | 400000 |
+| buffer_capacity | 100000 |
+| batch_size | 128 |
+| n_step | 3 |
+| hidden_layers | 2 |
+| card_encoding | raw |
+| symmetry_augment | False |
+| allow_undo | True |
+| prioritized_replay | True |
+| per_alpha | 0.6 |
+| per_beta_start | 0.4 |
+| per_beta_end | 1.0 |
+| lr | 2.5e-05 |
+| double_dqn | True |
+| gamma | 0.99 |
+| eps_start | 1.0 |
+| eps_end | 0.05 |
+| eps_decay_steps | 200000 |
+| learning_starts | 5000 |
+| train_freq | 4 |
+| target_update_mode | soft |
+| tau | 0.005 |
+| target_update_freq | 1000 |
+| grad_clip | 10.0 |
+| device | cuda |
+| seed | 0 |
+| tag | reward_shaping |
+| runs_dir | runs |
+| notes | Cold-start test of the reshaped reward function alone (10x rescale + king-on-empty/column-uncovered/column-emptied milestone bonuses + win bonus raised 100->5000), isolated from BC/curriculum warm-start. Otherwise our cleanest baseline: Double DQN, soft target updates, n-step=3, PER, raw card encoding, hidden-layers=2, undo allowed. Compare eval win rate and mean_foundation trend directly against runs 001-011, all of which were flat 0.00% under the old reward function. |
+| no_log_games | False |
+| print_every | 1000 |
+| checkpoint_every | 10000 |
+| eval_every | 10000 |
+| eval_episodes | 100 |
+| curriculum_source | None |
+| curriculum_fraction | 0.5 |
+| curriculum_start_tail | 10 |
+| curriculum_end_tail | 10000 |
+| curriculum_anneal_steps | 300000 |
+| resume_from | None |
+| resume_step | 0 |
+| git_commit | e391b19e12db2264ec6f486e0f404d9031a2538f |
+| git_dirty | True |
+
+## Results
+
+_(pending - run still in progress, or was interrupted before finishing)_
