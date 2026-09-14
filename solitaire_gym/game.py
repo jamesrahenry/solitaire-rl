@@ -177,12 +177,18 @@ class SolitaireGame:
 
     def is_stalled(self) -> bool:
         """True once we've cycled all the way through the current stock+waste
-        pool via pure draws with no intervening move: every possible waste-top
-        exposure has been tried against this (frozen) tableau/foundation state
-        and none of them unlocked a legal non-draw action. A provable dead
-        end, not just "the agent chose not to act.\""""
+        pool via pure draws with no intervening move *and* the resulting
+        state - including whatever that final draw just revealed - genuinely
+        has no legal move left besides drawing again. The draw count alone
+        isn't sufficient: the very last draw of a cycle can reveal a waste-top
+        card that's immediately playable (e.g. straight to a foundation), and
+        that has to actually be checked, not just counted past - otherwise
+        the episode can end on the exact step that hands the agent a legal
+        move, before it ever gets a chance to take it."""
         pool = len(self.stock) + len(self.waste)
-        return pool > 0 and self.draws_since_progress >= pool
+        if pool == 0 or self.draws_since_progress < pool:
+            return False
+        return not any(self.is_legal(a) for a in range(NUM_ACTIONS) if a != ACTION_DRAW)
 
     # -- legality --------------------------------------------------------
 
