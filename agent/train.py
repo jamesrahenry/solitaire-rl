@@ -27,6 +27,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import json
 import resource
 import time
 from pathlib import Path
@@ -367,6 +368,20 @@ def main() -> None:
     episode_len = 0
     episode_count = 0
     lifetime_outcomes = {"won": 0, "stalled": 0, "truncated": 0, "other": 0}
+    # seed from this run's own games.jsonl (append-mode, so it already holds
+    # the true full history across any resume/restart) rather than always
+    # starting at 0 - otherwise a --resume-from continuation (or an OOM
+    # auto-restart) looks like it "forgot" every win from before that point,
+    # in both the printed log line and the lifetime_wins plot column
+    games_log_path = run_dir / "games.jsonl"
+    if games_log_path.exists():
+        with games_log_path.open() as f:
+            for line in f:
+                reason = json.loads(line).get("reason")
+                if reason in lifetime_outcomes:
+                    lifetime_outcomes[reason] += 1
+                elif reason is not None:
+                    lifetime_outcomes["other"] += 1
     # reset every print/plot interval, to show recent trends rather than lifetime averages
     window_outcomes = {"won": 0, "stalled": 0, "truncated": 0, "other": 0}
     window_episodes = 0

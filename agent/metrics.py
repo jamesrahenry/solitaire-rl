@@ -37,6 +37,43 @@ EVAL_CSV_FIELDS = [
 ]
 
 
+def _backfill_lifetime_wins(old_rows: list[dict]) -> list[int] | None:
+    """Reconstruct an exact historical lifetime_wins series for rows logged
+    before that column existed, from two columns that already existed:
+    win_rate (this window's win fraction) and episodes (a *per-process*
+    cumulative episode count so far). window win-count = round(win_rate *
+    window_episodes) is exact, not an estimate, since win_rate was itself
+    computed as an exact win_count / window_episodes ratio when it was
+    logged. Returns None if the source columns aren't present.
+
+    episodes resets to a small number every time training resumes into the
+    same run directory (--resume-from/--run-dir reuse spawns a fresh
+    process with its own episode_count starting at 0), so a plain
+    row-to-row diff goes badly negative right at that boundary. Detect it
+    (episodes decreasing) and treat it as the start of a new segment: that
+    row's own window is just its own episode count, and the running
+    cumulative total carries over from the end of the previous segment
+    rather than resetting - it's the count of *wins*, which - unlike
+    per-process episode/step counters - has no reason to reset just because
+    the process did."""
+    if not old_rows or "win_rate" not in old_rows[0] or "episodes" not in old_rows[0]:
+        return None
+    cumulative = 0
+    result = []
+    prev_episodes = None
+    for row in old_rows:
+        try:
+            episodes = int(float(row["episodes"]))
+            win_rate = float(row["win_rate"])
+        except (KeyError, ValueError):
+            return None
+        window_episodes = episodes if prev_episodes is None or episodes < prev_episodes else episodes - prev_episodes
+        cumulative += round(win_rate * window_episodes)
+        result.append(cumulative)
+        prev_episodes = episodes
+    return result
+
+
 class MetricsLogger:
     def __init__(self, csv_path: str, fields: list[str] | None = None):
         self.csv_path = Path(csv_path)
@@ -53,16 +90,28 @@ class MetricsLogger:
             # Schema changed since this file was created - e.g. resuming a run
             # (--resume-from/--run-dir reuse) under code that now logs an extra
             # column. Migrate in place rather than crash or silently corrupt
-            # column alignment: keep every historical row, backfilling any new
-            # column with "" (read back as NaN), instead of losing the run's
-            # accumulated history.
+            # column alignment: keep every historical row, instead of losing
+            # the run's accumulated history.
             with self.csv_path.open() as f:
                 old_rows = list(csv.DictReader(f))
+            # lifetime_wins specifically is exactly reconstructible from two
+            # columns that already existed before it did (win_rate, this
+            # window's win fraction, and episodes, the cumulative count) -
+            # backfill it properly rather than leaving old rows blank, which
+            # would otherwise make the whole pre-migration history plot as a
+            # flat/empty line.
+            backfilled_wins = _backfill_lifetime_wins(old_rows) if "lifetime_wins" in self.fields else None
             with self.csv_path.open("w", newline="") as f:
                 writer = csv.writer(f)
                 writer.writerow(self.fields)
-                for row in old_rows:
-                    writer.writerow([row.get(k, "") for k in self.fields])
+                for i, row in enumerate(old_rows):
+                    values = []
+                    for k in self.fields:
+                        if k == "lifetime_wins" and backfilled_wins is not None and k not in row:
+                            values.append(backfilled_wins[i])
+                        else:
+                            values.append(row.get(k, ""))
+                    writer.writerow(values)
 
     def log(self, **kwargs) -> None:
         row = [kwargs.get(k, "") for k in self.fields]
@@ -83,6 +132,7 @@ class MetricsLogger:
         _line(axes[0, 2], steps, [r["mean_loss"] for r in rows], "Mean training loss", "loss")
         _line(axes[0, 3], steps, [r["lifetime_wins"] for r in rows], "Cumulative training-time wins", "wins (count)")
         axes[0, 3].yaxis.set_major_locator(MaxNLocator(integer=True))
+        axes[0, 3].set_ylim(bottom=0)  # a cumulative count, never negative
         _line(axes[1, 0], steps, [r["epsilon"] for r in rows], "Epsilon", "epsilon")
         _line(
             axes[1, 1],
