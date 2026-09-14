@@ -45,6 +45,24 @@ class MetricsLogger:
         if not self.csv_path.exists():
             with self.csv_path.open("w", newline="") as f:
                 csv.writer(f).writerow(self.fields)
+            return
+
+        with self.csv_path.open() as f:
+            existing_header = next(csv.reader(f), None)
+        if existing_header is not None and existing_header != self.fields:
+            # Schema changed since this file was created - e.g. resuming a run
+            # (--resume-from/--run-dir reuse) under code that now logs an extra
+            # column. Migrate in place rather than crash or silently corrupt
+            # column alignment: keep every historical row, backfilling any new
+            # column with "" (read back as NaN), instead of losing the run's
+            # accumulated history.
+            with self.csv_path.open() as f:
+                old_rows = list(csv.DictReader(f))
+            with self.csv_path.open("w", newline="") as f:
+                writer = csv.writer(f)
+                writer.writerow(self.fields)
+                for row in old_rows:
+                    writer.writerow([row.get(k, "") for k in self.fields])
 
     def log(self, **kwargs) -> None:
         row = [kwargs.get(k, "") for k in self.fields]
