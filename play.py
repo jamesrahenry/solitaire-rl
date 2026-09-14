@@ -66,21 +66,6 @@ def pad_cell(display: str, visible_len: int) -> str:
 
 
 def render(game) -> str:
-    rows = max((len(p) for p in game.tableau), default=0)
-    lines = [" ".join(f"C{c + 1:<3}" for c in range(NUM_TABLEAU))]
-    for r in range(rows):
-        cells = []
-        for pile in game.tableau:
-            if r < len(pile):
-                card, up = pile[r]
-                plain = card_str(card) if up else "??"
-                display = colorize(card) if up else plain
-            else:
-                plain = display = ""
-            cells.append(pad_cell(display, len(plain)))
-        lines.append(" ".join(cells))
-
-    lines.append("")
     suits_order = "SHCD"
     found_cells = []
     for s in range(4):
@@ -93,11 +78,26 @@ def render(game) -> str:
             plain = display = "--"
         card_field = pad_cell(display, len(plain))
         found_cells.append(f"{suits_order[s]}:{card_field}({count:2d})")
-    lines.append("Foundations  " + "  ".join(found_cells))
+    lines = ["Foundations  " + "  ".join(found_cells)]
     waste = colorize(game.waste[-1]) if game.waste else "--"
     lines.append(
         f"Waste: {waste}    Stock remaining: {len(game.stock)}    Waste pile size: {len(game.waste)}"
     )
+    lines.append("")
+
+    rows = max((len(p) for p in game.tableau), default=0)
+    lines.append(" ".join(f"C{c + 1:<3}" for c in range(NUM_TABLEAU)))
+    for r in range(rows):
+        cells = []
+        for pile in game.tableau:
+            if r < len(pile):
+                card, up = pile[r]
+                plain = card_str(card) if up else "??"
+                display = colorize(card) if up else plain
+            else:
+                plain = display = ""
+            cells.append(pad_cell(display, len(plain)))
+        lines.append(" ".join(cells))
     return "\n".join(lines)
 
 
