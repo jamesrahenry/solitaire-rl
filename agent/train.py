@@ -546,7 +546,7 @@ def main() -> None:
                 mean_final_foundation=mean_foundation,
                 lifetime_wins=lifetime_outcomes["won"],
             )
-            metrics.plot(str(plot_path))
+            metrics.plot(str(plot_path), eval_csv_path=str(run_dir / "eval_metrics.csv"))
 
             recent_returns.clear()
             recent_losses.clear()

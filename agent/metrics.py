@@ -119,7 +119,7 @@ class MetricsLogger:
         with self.csv_path.open("a", newline="") as f:
             csv.writer(f).writerow(row)
 
-    def plot(self, png_path: str) -> None:
+    def plot(self, png_path: str, eval_csv_path: str | None = None) -> None:
         rows = _read_rows(self.csv_path)
         if not rows:
             return
@@ -157,7 +157,11 @@ class MetricsLogger:
         ax.set_ylim(0, 1)
         ax.legend(loc="upper left", fontsize=8)
 
-        axes[1, 3].axis("off")
+        eval_rows = _read_rows(Path(eval_csv_path)) if eval_csv_path and Path(eval_csv_path).exists() else []
+        if eval_rows and "lifetime_wins" in rows[0]:
+            _plot_trained_vs_random_wins(axes[1, 3], rows, eval_rows)
+        else:
+            axes[1, 3].axis("off")
 
         fig.tight_layout()
         fig.savefig(png_path, dpi=100)
@@ -197,6 +201,46 @@ def _read_rows(path: Path) -> list[dict]:
         for r in reader:
             rows.append({k: (float(v) if v not in ("", None) else float("nan")) for k, v in r.items()})
         return rows
+
+
+def _plot_trained_vs_random_wins(ax, train_rows: list[dict], eval_rows: list[dict]) -> None:
+    """Compare, at each eval checkpoint: how many of the fixed eval deals the
+    greedy ("trained") policy actually solved, against how many wins
+    epsilon-driven exploration ("random") turned up in training during the
+    steps since the previous checkpoint. Both plotted as plain win counts
+    over a matching interval - not a cumulative total against a rate -
+    so they're directly comparable rather than needing to be reconciled by
+    eye. This is the plot for "am I making progress toward a policy that
+    wins on its own, or just accumulating lucky exploration wins.\""""
+    eval_steps = [r["step"] for r in eval_rows]
+    eval_win_counts = [round(r["eval_win_rate"] * r["eval_episodes"]) for r in eval_rows]
+
+    train_by_step = {r["step"]: r["lifetime_wins"] for r in train_rows}
+    train_steps_sorted = sorted(train_by_step)
+
+    def lifetime_wins_at(step: float) -> float:
+        best = 0.0
+        for s in train_steps_sorted:
+            if s > step:
+                break
+            best = train_by_step[s]
+        return best
+
+    random_win_counts = []
+    prev_wins = 0.0
+    for s in eval_steps:
+        wins_now = lifetime_wins_at(s)
+        random_win_counts.append(wins_now - prev_wins)
+        prev_wins = wins_now
+
+    ax.plot(eval_steps, eval_win_counts, marker="o", markersize=3, label="trained (greedy eval, /100 fixed deals)")
+    ax.plot(eval_steps, random_win_counts, marker="o", markersize=3, label="random (training wins since last checkpoint)")
+    ax.set_title("Trained wins vs random wins per checkpoint")
+    ax.set_xlabel("step")
+    ax.set_ylabel("win count")
+    ax.yaxis.set_major_locator(MaxNLocator(integer=True))
+    ax.set_ylim(bottom=0)
+    ax.legend(fontsize=7, loc="best")
 
 
 def _rolling_mean(values: list[float], window: int) -> np.ndarray:
