@@ -50,7 +50,25 @@ from agent.run_utils import next_run_dir, save_config, write_readme_start, final
 from agent.curriculum import load_wins, tail_steps_by_step, make_initial_moves
 
 
-def epsilon_by_step(step: int, eps_start: float, eps_end: float, decay_steps: int) -> float:
+def epsilon_by_step(
+    step: int,
+    eps_start: float,
+    eps_end: float,
+    decay_steps: int,
+    reheat_step: int | None = None,
+    reheat_eps: float = 0.0,
+    reheat_decay_steps: int = 1,
+) -> float:
+    """Linear decay from eps_start to eps_end over decay_steps. If
+    reheat_step is set, epsilon jumps to reheat_eps exactly at that step
+    (however low it had already decayed) and linearly decays back down to
+    eps_end over the following reheat_decay_steps - a one-shot "reheat" to
+    re-trigger exploration-driven discovery after the normal decay has
+    settled at its floor, motivated by wins clustering entirely in the
+    high-epsilon regime and stopping dead once epsilon bottoms out."""
+    if reheat_step is not None and step >= reheat_step:
+        frac = min(1.0, (step - reheat_step) / reheat_decay_steps)
+        return reheat_eps + frac * (eps_end - reheat_eps)
     frac = min(1.0, step / decay_steps)
     return eps_start + frac * (eps_end - eps_start)
 
@@ -225,6 +243,9 @@ def main() -> None:
     parser.add_argument("--eps-start", type=float, default=1.0)
     parser.add_argument("--eps-end", type=float, default=0.05)
     parser.add_argument("--eps-decay-steps", type=int, default=200_000)
+    parser.add_argument("--reheat-step", type=int, default=None, help="step at which epsilon jumps back up to --reheat-eps, then decays back to --eps-end over --reheat-decay-steps; omit to disable")
+    parser.add_argument("--reheat-eps", type=float, default=0.4)
+    parser.add_argument("--reheat-decay-steps", type=int, default=50_000)
     parser.add_argument("--learning-starts", type=int, default=5_000, help="steps before training begins")
     parser.add_argument("--train-freq", type=int, default=4, help="train every N environment steps")
     parser.add_argument(
@@ -357,7 +378,15 @@ def main() -> None:
     start_time = time.time()
 
     for step in range(args.resume_step + 1, args.steps + 1):
-        epsilon = epsilon_by_step(step, args.eps_start, args.eps_end, args.eps_decay_steps)
+        epsilon = epsilon_by_step(
+            step,
+            args.eps_start,
+            args.eps_end,
+            args.eps_decay_steps,
+            reheat_step=args.reheat_step,
+            reheat_eps=args.reheat_eps,
+            reheat_decay_steps=args.reheat_decay_steps,
+        )
         online_net.eval()
         action = select_action(online_net, features, mask, epsilon, rng, args.device)
 
