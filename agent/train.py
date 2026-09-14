@@ -466,6 +466,7 @@ def main() -> None:
                 stalled_rate=stalled_rate,
                 truncated_rate=truncated_rate,
                 mean_final_foundation=mean_foundation,
+                lifetime_wins=lifetime_outcomes["won"],
             )
             metrics.plot(str(plot_path))
 

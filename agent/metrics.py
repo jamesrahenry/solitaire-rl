@@ -11,6 +11,7 @@ import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from matplotlib.ticker import MaxNLocator
 
 CSV_FIELDS = [
     "step",
@@ -23,6 +24,7 @@ CSV_FIELDS = [
     "stalled_rate",
     "truncated_rate",
     "mean_final_foundation",
+    "lifetime_wins",
 ]
 
 EVAL_CSV_FIELDS = [
@@ -55,12 +57,14 @@ class MetricsLogger:
             return
 
         steps = [r["step"] for r in rows]
-        fig, axes = plt.subplots(2, 3, figsize=(15, 8))
+        fig, axes = plt.subplots(2, 4, figsize=(20, 8))
         fig.suptitle(f"Solitaire DQN training progress (step {int(steps[-1]):,})")
 
         _line(axes[0, 0], steps, [r["mean_return"] for r in rows], "Mean episode return", "return")
         _line(axes[0, 1], steps, [r["mean_episode_len"] for r in rows], "Mean episode length", "steps")
         _line(axes[0, 2], steps, [r["mean_loss"] for r in rows], "Mean training loss", "loss")
+        _line(axes[0, 3], steps, [r["lifetime_wins"] for r in rows], "Cumulative training-time wins", "wins (count)")
+        axes[0, 3].yaxis.set_major_locator(MaxNLocator(integer=True))
         _line(axes[1, 0], steps, [r["epsilon"] for r in rows], "Epsilon", "epsilon")
         _line(
             axes[1, 1],
@@ -82,6 +86,8 @@ class MetricsLogger:
         ax.set_xlabel("step")
         ax.set_ylim(0, 1)
         ax.legend(loc="upper left", fontsize=8)
+
+        axes[1, 3].axis("off")
 
         fig.tight_layout()
         fig.savefig(png_path, dpi=100)
