@@ -57,11 +57,14 @@ def foundation_move_action(suit: int, dst: int) -> int:
     return ACTION_FOUNDATION_TO_TABLEAU_START + suit * NUM_TABLEAU + dst
 
 
-REWARD_NEW_FOUNDATION_HIGH = 1.0  # only for exceeding a suit's high-water mark, not any foundation move
-REWARD_REVEAL = 5.0               # flipping a previously hidden tableau card face-up
-REWARD_ILLEGAL = -1.0
-REWARD_STEP = -0.001
-REWARD_WIN_BONUS = 10.0
+REWARD_NEW_FOUNDATION_HIGH = 10.0  # only for exceeding a suit's high-water mark, not any foundation move
+REWARD_REVEAL = 50.0                # flipping a previously hidden tableau card face-up
+REWARD_KING_ON_EMPTY = 40.0          # a king lands on an empty tableau column, first time for that column only
+REWARD_COLUMN_UNCOVERED = 30.0       # a column's last hidden card is revealed, first time for that column only
+REWARD_COLUMN_EMPTIED = 20.0          # a column reaches zero cards, first time for that column only (groundwork for a future king move there)
+REWARD_ILLEGAL = -10.0
+REWARD_STEP = -0.01
+REWARD_WIN_BONUS = 5000.0  # deliberately dominant: a full clearing already banks ~2050 from the other milestone bonuses above, so a same-order-of-magnitude win bonus gave weak marginal incentive to actually finish vs. stopping just short
 
 
 @dataclass
@@ -69,6 +72,9 @@ class SolitaireGame:
     tableau: list = field(default_factory=list)   # 7 lists of [card_id, face_up]
     foundations: list = field(default_factory=list)  # 4 ints, count placed per suit (0..13)
     foundation_high_water: list = field(default_factory=list)  # 4 ints, best-ever count per suit (never decreases)
+    king_on_empty: list = field(default_factory=list)      # 4 bools, indexed by suit - whether *that king* has ever triggered its bonus (not per-column, so a single king can't farm it by touring distinct never-before-used empty columns)
+    column_uncovered: list = field(default_factory=list)   # 7 bools, whether this column has ever gotten a fully-uncovered (0 hidden cards) bonus
+    column_emptied: list = field(default_factory=list)      # 7 bools, whether this column has ever gotten a fully-emptied (0 total cards) bonus
     stock: list = field(default_factory=list)      # draw pile, stock[-1] is next to draw
     waste: list = field(default_factory=list)      # waste[-1] is the visible top card
     draws_since_progress: int = 0  # consecutive draws with no other move in between
@@ -86,6 +92,12 @@ class SolitaireGame:
 
         self.foundations = [0] * NUM_FOUNDATIONS
         self.foundation_high_water = [0] * NUM_FOUNDATIONS
+        self.king_on_empty = [False] * NUM_FOUNDATIONS
+        # column 0 is dealt with 0 hidden cards (already fully uncovered) - pre-flag it
+        # so its first reveal-adjacent move doesn't fire a spurious bonus. No column is
+        # dealt empty, though, so column_emptied starts all-False with no exceptions.
+        self.column_uncovered = [self._tableau_run_start(col) == 0 for col in range(NUM_TABLEAU)]
+        self.column_emptied = [False] * NUM_TABLEAU
         self.stock = deck  # remaining cards, stock[-1] drawn first
         self.waste = []
         self.draws_since_progress = 0
@@ -109,6 +121,41 @@ class SolitaireGame:
         if self.foundations[suit] > self.foundation_high_water[suit]:
             self.foundation_high_water[suit] = self.foundations[suit]
             return REWARD_NEW_FOUNDATION_HIGH
+        return 0.0
+
+    def _reveal_bonus(self, col: int) -> float:
+        """Call right after a successful _flip_top(col). Returns
+        REWARD_COLUMN_UNCOVERED the first time this column has zero hidden
+        cards left, 0.0 otherwise."""
+        if not self.column_uncovered[col] and self._tableau_run_start(col) == 0:
+            self.column_uncovered[col] = True
+            return REWARD_COLUMN_UNCOVERED
+        return 0.0
+
+    def _king_on_empty_bonus(self, suit: int, was_empty: bool) -> float:
+        """Call after placing a run onto a tableau column, passing the *suit
+        of the card that landed on the (possibly empty) column*. `was_empty`
+        must be captured before the move - only an empty column accepts a
+        king (rule-enforced), so no rank check is needed here. Gated per-king
+        (per suit), not per-column: each of the 4 kings pays out once ever,
+        the first time it lands on an empty column, no matter which column -
+        gating by column instead would let one king tour every never-before-
+        used empty column and collect the bonus repeatedly."""
+        if was_empty and not self.king_on_empty[suit]:
+            self.king_on_empty[suit] = True
+            return REWARD_KING_ON_EMPTY
+        return 0.0
+
+    def _column_emptied_bonus(self, col: int) -> float:
+        """Call right after a move that may have removed a column's last
+        card. Returns REWARD_COLUMN_EMPTIED the first time this column
+        reaches zero total cards (distinct from column_uncovered, which
+        tracks zero *hidden* cards - a column can be uncovered long before
+        it's ever emptied, or emptied without ever having had a hidden card
+        to begin with, like column 0)."""
+        if not self.tableau[col] and not self.column_emptied[col]:
+            self.column_emptied[col] = True
+            return REWARD_COLUMN_EMPTIED
         return 0.0
 
     def _tableau_run_start(self, col: int) -> int:
@@ -229,8 +276,10 @@ class SolitaireGame:
         elif ACTION_WASTE_TO_TABLEAU_START <= action < ACTION_WASTE_TO_TABLEAU_START + NUM_TABLEAU:
             self.draws_since_progress = 0
             col = action - ACTION_WASTE_TO_TABLEAU_START
+            was_empty = not self.tableau[col]
             card = self.waste.pop()
             self.tableau[col].append([card, True])
+            reward += self._king_on_empty_bonus(suit_of(card), was_empty)
 
         elif action == ACTION_WASTE_TO_FOUNDATION:
             self.draws_since_progress = 0
@@ -242,27 +291,35 @@ class SolitaireGame:
             col = action - ACTION_TABLEAU_TO_FOUNDATION_START
             card, _ = self.tableau[col].pop()
             reward += self._add_to_foundation(card)
+            reward += self._column_emptied_bonus(col)
             if self._flip_top(col):
                 reward += REWARD_REVEAL
+                reward += self._reveal_bonus(col)
 
         elif action < ACTION_FOUNDATION_TO_TABLEAU_START:  # tableau -> tableau
             self.draws_since_progress = 0
             move_idx, count = divmod(action - ACTION_TABLEAU_TO_TABLEAU_START, MAX_RUN_LEN)
             src, dst = TABLEAU_MOVES[move_idx]
             count += 1
+            was_empty = not self.tableau[dst]
             split = len(self.tableau[src]) - count
             run = self.tableau[src][split:]
             del self.tableau[src][split:]
             self.tableau[dst].extend(run)
+            reward += self._king_on_empty_bonus(suit_of(run[0][0]), was_empty)
+            reward += self._column_emptied_bonus(src)
             if self._flip_top(src):
                 reward += REWARD_REVEAL
+                reward += self._reveal_bonus(src)
 
         else:  # foundation -> tableau (undo); no penalty, and does not lower the high-water mark
             self.draws_since_progress = 0
             suit, dst = divmod(action - ACTION_FOUNDATION_TO_TABLEAU_START, NUM_TABLEAU)
+            was_empty = not self.tableau[dst]
             self.foundations[suit] -= 1
             card = suit * NUM_RANKS + self.foundations[suit]
             self.tableau[dst].append([card, True])
+            reward += self._king_on_empty_bonus(suit, was_empty)
 
         if self.is_won():
             reward += REWARD_WIN_BONUS
