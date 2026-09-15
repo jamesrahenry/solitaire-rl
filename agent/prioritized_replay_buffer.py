@@ -59,10 +59,27 @@ class SumTree:
 
 
 class PrioritizedReplayBuffer:
-    def __init__(self, capacity: int, num_features: int, num_actions: int, alpha: float = 0.6, eps: float = 1e-6):
+    def __init__(
+        self,
+        capacity: int,
+        num_features: int,
+        num_actions: int,
+        alpha: float = 0.6,
+        eps: float = 1e-6,
+        num_demo: int = 0,
+        demo_eps: float = 1.0,
+    ):
+        """num_demo/demo_eps: DQfD (Hester et al. 2017) permanent
+        demonstration region, same idea as ReplayBuffer.num_demo, plus a
+        larger priority floor (demo_eps >> eps) for demo transitions so they
+        keep getting sampled at a meaningful rate even once their TD-error
+        shrinks, instead of fading out the way an ordinary transition's
+        priority would."""
         self.capacity = capacity
         self.alpha = alpha
         self.eps = eps
+        self.num_demo = num_demo
+        self.demo_eps = demo_eps
         self.tree = SumTree(capacity)
         self.max_priority = 1.0
 
@@ -74,12 +91,30 @@ class PrioritizedReplayBuffer:
         self.next_masks = np.zeros((capacity, num_actions), dtype=bool)
         self.dones = np.zeros(capacity, dtype=bool)
         self.discounts = np.zeros(capacity, dtype=np.float32)
+        self.is_demo = np.zeros(capacity, dtype=bool)
 
-        self.pos = 0
+        self.pos = 0  # self-play write pointer, relative to (offset by) num_demo
         self.size = 0
 
+    def load_demos(self, transitions: list[tuple]) -> None:
+        """Populate the permanent demo region [0, num_demo) directly. Call
+        once, before any add() calls, with exactly num_demo transitions."""
+        assert len(transitions) == self.num_demo, f"expected exactly {self.num_demo} demo transitions, got {len(transitions)}"
+        for idx, (features, mask, action, reward, next_features, next_mask, done, discount) in enumerate(transitions):
+            self.features[idx] = features
+            self.masks[idx] = mask
+            self.actions[idx] = action
+            self.rewards[idx] = reward
+            self.next_features[idx] = next_features
+            self.next_masks[idx] = next_mask
+            self.dones[idx] = done
+            self.discounts[idx] = discount
+            self.is_demo[idx] = True
+            self.tree.update(idx, self.max_priority**self.alpha)
+        self.size = max(self.size, self.num_demo)
+
     def add(self, features, mask, action, reward, next_features, next_mask, done, discount) -> None:
-        idx = self.pos
+        idx = self.num_demo + self.pos
         self.features[idx] = features
         self.masks[idx] = mask
         self.actions[idx] = action
@@ -91,7 +126,7 @@ class PrioritizedReplayBuffer:
 
         self.tree.update(idx, self.max_priority**self.alpha)
 
-        self.pos = (self.pos + 1) % self.capacity
+        self.pos = (self.pos + 1) % (self.capacity - self.num_demo)
         self.size = min(self.size + 1, self.capacity)
 
     def sample(self, batch_size: int, rng: np.random.Generator, beta: float) -> tuple:
@@ -124,11 +159,13 @@ class PrioritizedReplayBuffer:
             self.next_masks[idxs],
             self.dones[idxs],
             self.discounts[idxs],
+            self.is_demo[idxs],
         )
         return batch, idxs, weights.astype(np.float32)
 
     def update_priorities(self, idxs: np.ndarray, td_errors: np.ndarray) -> None:
-        priorities = (np.abs(td_errors) + self.eps) ** self.alpha
+        floors = np.where(self.is_demo[idxs], self.demo_eps, self.eps)
+        priorities = (np.abs(td_errors) + floors) ** self.alpha
         for idx, p in zip(idxs, priorities):
             self.tree.update(int(idx), float(p))
         self.max_priority = max(self.max_priority, float(priorities.max()))

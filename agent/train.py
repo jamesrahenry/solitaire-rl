@@ -49,6 +49,7 @@ from agent.nstep_buffer import NStepAccumulator
 from agent.metrics import MetricsLogger, EVAL_CSV_FIELDS, plot_eval
 from agent.run_utils import next_run_dir, save_config, write_readme_start, finalize_readme, TeeLogger
 from agent.curriculum import load_wins, tail_steps_by_step, make_initial_moves
+from agent.dqfd_demos import build_demo_transitions
 
 
 def epsilon_by_step(
@@ -156,11 +157,26 @@ def compute_loss(
     device: str,
     double_dqn: bool = True,
     is_weights: torch.Tensor | None = None,
+    margin: float = 0.8,
+    margin_loss_weight: float = 1.0,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """Returns (loss, per_sample_td_error). td_error is detached and only
     used to refresh priorities in the prioritized replay buffer; it's
-    ignored entirely when using plain uniform replay."""
-    features, masks, actions, rewards, next_features, next_masks, dones, discounts = batch
+    ignored entirely when using plain uniform replay.
+
+    If any transitions in the batch are marked is_demo (DQfD, Hester et al.
+    2017 - permanent demonstration transitions in the replay buffer), adds
+    a supervised large-margin classification loss for those rows only:
+    max_a[Q(s,a) + margin(a, a_E)] - Q(s, a_E), where margin(a_E, a_E) = 0
+    and margin(a, a_E) = `margin` otherwise. This pushes the demonstrated
+    action's Q-value to beat every other action's by at least that margin,
+    unless TD-learning has independently established a genuinely higher
+    value for a different action - unlike behavior-cloning pretraining,
+    this loss is applied continuously throughout RL training (every batch
+    that includes a demo transition), not just once at initialization, so
+    the network can't drift away from the demonstrations over time the way
+    a one-shot BC warm-start can."""
+    features, masks, actions, rewards, next_features, next_masks, dones, discounts, is_demo = batch
 
     features_t = torch.from_numpy(features).to(device)
     masks_t = torch.from_numpy(masks).to(device)
@@ -170,6 +186,7 @@ def compute_loss(
     next_masks_t = torch.from_numpy(next_masks).to(device)
     dones_t = torch.from_numpy(dones).to(device)
     discounts_t = torch.from_numpy(discounts).to(device)
+    is_demo_t = torch.from_numpy(is_demo).to(device)
 
     q_values = net(features_t, masks_t)
     q_selected = q_values.gather(1, actions_t.unsqueeze(1)).squeeze(1)
@@ -197,6 +214,18 @@ def compute_loss(
         loss = (is_weights * per_sample_loss).mean()
     else:
         loss = per_sample_loss.mean()
+
+    if is_demo_t.any():
+        # margin(a, a_E): 0 at the demonstrated action, `margin` everywhere else.
+        # Illegal actions are already masked to ~-1e9 by the network itself, so
+        # adding `margin` (at most 0.8) leaves them enormously negative and they
+        # never win the max() below - no separate masking needed here.
+        margin_matrix = torch.full_like(q_values, margin)
+        margin_matrix.scatter_(1, actions_t.unsqueeze(1), 0.0)
+        supervised_gap = (q_values + margin_matrix).max(dim=1).values - q_selected
+        margin_loss = (supervised_gap * is_demo_t.float()).sum() / is_demo_t.float().sum().clamp(min=1.0)
+        loss = loss + margin_loss_weight * margin_loss
+
     return loss, td_errors.detach()
 
 
@@ -237,6 +266,18 @@ def main() -> None:
     parser.add_argument("--per-alpha", type=float, default=0.6, help="prioritization exponent (0=uniform, 1=fully proportional to |TD error|)")
     parser.add_argument("--per-beta-start", type=float, default=0.4, help="initial importance-sampling correction exponent")
     parser.add_argument("--per-beta-end", type=float, default=1.0, help="final IS-correction exponent, annealed to linearly over --steps")
+    parser.add_argument(
+        "--demo-source",
+        default=None,
+        help="DQfD (Hester et al. 2017): games.jsonl-schema file of real wins to permanently seed into the replay buffer "
+        "alongside self-generated experience, plus a supervised large-margin loss anchoring the network toward the "
+        "demonstrated actions throughout training (not just at initialization, unlike behavior-cloning pretraining). "
+        "Omit to disable entirely (default) - a plain Double DQN + PER run otherwise identical to every prior run.",
+    )
+    parser.add_argument("--num-demo-transitions", type=int, default=30_000, help="how many n-step demo transitions to build from --demo-source's wins (must be < --buffer-capacity)")
+    parser.add_argument("--margin", type=float, default=0.8, help="DQfD supervised margin loss constant l(a_E, a): 0 when a is the demonstrated action, else this value")
+    parser.add_argument("--margin-loss-weight", type=float, default=1.0, help="weight on the margin loss term relative to the TD loss")
+    parser.add_argument("--demo-priority-eps", type=float, default=1.0, help="priority floor added to demo transitions' |TD error| before exponentiating (PER only) - keeps them sampled at a meaningful rate even once their TD-error shrinks, unlike self-play's much tinier built-in floor (1e-6)")
     parser.add_argument("--lr", type=float, default=2.5e-5)
     parser.add_argument(
         "--no-double-dqn",
@@ -376,10 +417,27 @@ def main() -> None:
     target_net.eval()
 
     optimizer = torch.optim.Adam(online_net.parameters(), lr=args.lr)
+    num_demo = args.num_demo_transitions if args.demo_source else 0
+    if num_demo:
+        assert num_demo < args.buffer_capacity, "--num-demo-transitions must be smaller than --buffer-capacity"
     if args.prioritized_replay:
-        buffer = PrioritizedReplayBuffer(args.buffer_capacity, num_features, NUM_ACTIONS, alpha=args.per_alpha)
+        buffer = PrioritizedReplayBuffer(
+            args.buffer_capacity, num_features, NUM_ACTIONS, alpha=args.per_alpha, num_demo=num_demo, demo_eps=args.demo_priority_eps
+        )
     else:
-        buffer = ReplayBuffer(args.buffer_capacity, num_features, NUM_ACTIONS)
+        buffer = ReplayBuffer(args.buffer_capacity, num_features, NUM_ACTIONS, num_demo=num_demo)
+    if args.demo_source:
+        log(f"DQfD: building {num_demo} permanent demo transitions from {args.demo_source}")
+        demo_transitions = build_demo_transitions(
+            source=args.demo_source,
+            preprocess_fn=preprocess_fn,
+            n_step=args.n_step,
+            gamma=args.gamma,
+            target_transitions=num_demo,
+            seed=args.seed,
+        )
+        buffer.load_demos(demo_transitions)
+        log(f"DQfD: loaded {num_demo} demo transitions into the permanent replay-buffer region")
     nstep = NStepAccumulator(args.n_step, args.gamma)
 
     curriculum_wins = load_wins([args.curriculum_source]) if args.curriculum_source else []
@@ -509,11 +567,26 @@ def main() -> None:
                 batch, sample_idxs, is_weights = buffer.sample(args.batch_size, rng, beta)
                 is_weights_t = torch.from_numpy(is_weights).to(args.device)
                 loss, td_errors = compute_loss(
-                    online_net, target_net, batch, args.device, args.double_dqn, is_weights_t
+                    online_net,
+                    target_net,
+                    batch,
+                    args.device,
+                    args.double_dqn,
+                    is_weights_t,
+                    margin=args.margin,
+                    margin_loss_weight=args.margin_loss_weight,
                 )
             else:
                 batch = buffer.sample(args.batch_size, rng)
-                loss, td_errors = compute_loss(online_net, target_net, batch, args.device, args.double_dqn)
+                loss, td_errors = compute_loss(
+                    online_net,
+                    target_net,
+                    batch,
+                    args.device,
+                    args.double_dqn,
+                    margin=args.margin,
+                    margin_loss_weight=args.margin_loss_weight,
+                )
 
             optimizer.zero_grad()
             loss.backward()
