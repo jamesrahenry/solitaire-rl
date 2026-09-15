@@ -8,9 +8,13 @@ __pycache__/
 # seed+action games.jsonl, or by re-running training) and not useful to
 # version - keep the lightweight logs/metrics/configs/plots for study instead
 runs/*/checkpoint_*.pt
-runs/bc_pretrained.pt
+runs/bc_pretrained*.pt
 
 # scratch dataset cache for agent/behavior_cloning.py, regenerated from
 # runs/curriculum_wins.jsonl on demand
 runs/_bc_cache/
 runs/_smoketest/
+
+# derived BC training subsets (a deterministic sample of runs/curriculum_wins.jsonl,
+# regenerable from it) - keep the small source corpus, not its large derived slices
+runs/bc_training_subset.jsonl
