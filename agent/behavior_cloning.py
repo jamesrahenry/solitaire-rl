@@ -43,13 +43,30 @@ def build_dataset(source: str, preprocess_fn, num_features: int, memmap_dir: str
     ~5GB at raw encoding (more at decomposed), and a single up-front RAM
     allocation that size was triggering repeated OOM kills at the exact
     same point on this machine. memmap lets the OS page it in from disk as
-    needed instead of reserving it all in RSS at once."""
+    needed instead of reserving it all in RSS at once.
+
+    Caches its output: a repeat call with the same source/memmap_dir/
+    num_features (e.g. re-running train_bc with a different network size)
+    reuses the existing replay instead of redoing it - the replay is by far
+    the slowest part (tens of minutes) and doesn't depend on the network at
+    all, only build_dataset's own inputs."""
     with open(source) as f:
         records = [json.loads(line) for line in f]
     total_steps = sum(r["num_steps"] for r in records)
     print(f"{len(records)} episodes, {total_steps} total state-action pairs")
 
     memmap_path = Path(memmap_dir)
+    meta_path = memmap_path / "meta.json"
+    if meta_path.exists():
+        meta = json.loads(meta_path.read_text())
+        if meta.get("source") == str(source) and meta.get("num_features") == num_features and meta.get("total_steps") == total_steps:
+            valid_steps = meta["valid_steps"]
+            print(f"reusing cached replay at {memmap_dir} ({valid_steps} valid steps, skipping replay)")
+            features = np.memmap(memmap_path / "features.dat", dtype=np.int32, mode="r", shape=(total_steps, num_features))
+            masks = np.memmap(memmap_path / "masks.dat", dtype=bool, mode="r", shape=(total_steps, NUM_ACTIONS))
+            actions = np.memmap(memmap_path / "actions.dat", dtype=np.int64, mode="r", shape=(total_steps,))
+            return features[:valid_steps], masks[:valid_steps], actions[:valid_steps]
+
     memmap_path.mkdir(parents=True, exist_ok=True)
     features = np.memmap(memmap_path / "features.dat", dtype=np.int32, mode="w+", shape=(total_steps, num_features))
     masks = np.memmap(memmap_path / "masks.dat", dtype=bool, mode="w+", shape=(total_steps, NUM_ACTIONS))
@@ -102,6 +119,7 @@ def build_dataset(source: str, preprocess_fn, num_features: int, memmap_dir: str
     masks.flush()
     actions.flush()
     env.close()
+    meta_path.write_text(json.dumps({"source": str(source), "num_features": num_features, "total_steps": total_steps, "valid_steps": idx}))
     return features[:idx], masks[:idx], actions[:idx]
 
 
