@@ -156,6 +156,7 @@ def main() -> None:
     parser.add_argument("--out", default="runs/bc_pretrained.pt")
     parser.add_argument("--card-encoding", choices=["raw", "decomposed"], default="raw")
     parser.add_argument("--hidden-layers", type=int, default=2)
+    parser.add_argument("--hidden-dim", type=int, default=512)
     parser.add_argument("--epochs", type=int, default=5)
     parser.add_argument("--batch-size", type=int, default=512)
     parser.add_argument("--lr", type=float, default=1e-3)
@@ -167,10 +168,17 @@ def main() -> None:
 
     if args.card_encoding == "decomposed":
         preprocess_fn, num_features = preprocess_decomposed, NUM_DECOMPOSED_FEATURES
-        net = DecomposedDQN(num_actions=NUM_ACTIONS, num_hidden_layers=args.hidden_layers).to(args.device)
+        net = DecomposedDQN(
+            num_actions=NUM_ACTIONS, num_hidden_layers=args.hidden_layers, hidden_dim=args.hidden_dim
+        ).to(args.device)
     else:
         preprocess_fn, num_features = preprocess, NUM_FEATURES
-        net = DQN(num_features=NUM_FEATURES, num_actions=NUM_ACTIONS, num_hidden_layers=args.hidden_layers).to(args.device)
+        net = DQN(
+            num_features=NUM_FEATURES,
+            num_actions=NUM_ACTIONS,
+            num_hidden_layers=args.hidden_layers,
+            hidden_dim=args.hidden_dim,
+        ).to(args.device)
 
     features, masks, actions = build_dataset(args.source, preprocess_fn, num_features, args.memmap_dir)
     train_bc(net, features, masks, actions, args.epochs, args.batch_size, args.lr, args.device, args.val_frac, args.seed)

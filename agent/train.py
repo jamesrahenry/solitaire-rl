@@ -206,7 +206,8 @@ def main() -> None:
     parser.add_argument("--buffer-capacity", type=int, default=100_000)
     parser.add_argument("--batch-size", type=int, default=128)
     parser.add_argument("--n-step", type=int, default=3, help="n-step return length (1 = plain 1-step TD)")
-    parser.add_argument("--hidden-layers", type=int, default=2, help="number of 512-unit hidden layers in the Q-network (default 2, matching all prior runs)")
+    parser.add_argument("--hidden-layers", type=int, default=2, help="number of hidden layers in the Q-network (default 2, matching all prior runs)")
+    parser.add_argument("--hidden-dim", type=int, default=512, help="units per hidden layer (default 512, matching all prior runs) - must match a --resume-from checkpoint's own architecture")
     parser.add_argument(
         "--card-encoding",
         choices=["raw", "decomposed"],
@@ -347,14 +348,28 @@ def main() -> None:
         preprocess_fn = preprocess_decomposed
         swap_features_fn = swap_features_decomposed
         num_features = NUM_DECOMPOSED_FEATURES
-        online_net = DecomposedDQN(num_actions=NUM_ACTIONS, num_hidden_layers=args.hidden_layers).to(args.device)
-        target_net = DecomposedDQN(num_actions=NUM_ACTIONS, num_hidden_layers=args.hidden_layers).to(args.device)
+        online_net = DecomposedDQN(
+            num_actions=NUM_ACTIONS, num_hidden_layers=args.hidden_layers, hidden_dim=args.hidden_dim
+        ).to(args.device)
+        target_net = DecomposedDQN(
+            num_actions=NUM_ACTIONS, num_hidden_layers=args.hidden_layers, hidden_dim=args.hidden_dim
+        ).to(args.device)
     else:
         preprocess_fn = preprocess
         swap_features_fn = swap_features_raw
         num_features = NUM_FEATURES
-        online_net = DQN(num_features=NUM_FEATURES, num_actions=NUM_ACTIONS, num_hidden_layers=args.hidden_layers).to(args.device)
-        target_net = DQN(num_features=NUM_FEATURES, num_actions=NUM_ACTIONS, num_hidden_layers=args.hidden_layers).to(args.device)
+        online_net = DQN(
+            num_features=NUM_FEATURES,
+            num_actions=NUM_ACTIONS,
+            num_hidden_layers=args.hidden_layers,
+            hidden_dim=args.hidden_dim,
+        ).to(args.device)
+        target_net = DQN(
+            num_features=NUM_FEATURES,
+            num_actions=NUM_ACTIONS,
+            num_hidden_layers=args.hidden_layers,
+            hidden_dim=args.hidden_dim,
+        ).to(args.device)
     if args.resume_from:
         online_net.load_state_dict(torch.load(args.resume_from, map_location=args.device, weights_only=True))
     target_net.load_state_dict(online_net.state_dict())
