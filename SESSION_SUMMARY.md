@@ -216,13 +216,46 @@ Verified directly rather than trusting the number blind: reloaded `checkpoint_25
 
 Honest framing: this is real evidence that the combination (permanent demonstration anchoring + sustained, undiminished exploration providing a steady stream of fresh near-win experience) can occasionally produce a genuinely competent greedy policy for a specific deal - not evidence that the approach reliably produces one. 89 organic training wins and 400,000 steps produced exactly one eval-deal solve, once, non-persistently. Still enormously sparse, but categorically different from a flat 0.00% that never moved once across 19 prior runs.
 
-## 21. Current state / open questions for next time
+## 21. The real breakthrough: the 0% wall was substantially a measurement artifact
 
-- **First-ever reproducible non-zero greedy-eval win, run 020** (DQfD + higher epsilon floor combined): one fixed eval deal solved deterministically at step 250,000, verified independently, but an isolated single-checkpoint event, not sustained across nearby checkpoints. Every other run and every other checkpoint in this run remains at 0.00%.
-- **19 of 20 runs, and 39 of run 020's own 40 checkpoints, still show flat 0%** across every lever tried: Double DQN, soft updates, n-step, PER, curriculum, a deeper network, undo removal, decomposed encoding + symmetry augmentation, slower epsilon decay, a permanently higher epsilon floor alone, BC warm-start (narrow corpus, ~50x-larger corpus, and a 4x-wider network), DQfD alone (3 hyperparameter variants), a reshaped/rebalanced reward function, a fixed stall-detection bug, a doubled episode budget, and single/dual epsilon reheats.
-- What *has* clearly worked, repeatedly and substantively: the `is_stalled` bug fix, the longer episode ceiling, and the higher epsilon floor all measurably increased how much and how consistently exploration finds wins (10 → 89 organic wins in a single run, corpus grown ~50x). Exploration volume is no longer the bottleneck it looked like early in the project. Only the *combination* of DQfD with sustained exploration (not either alone) has shown even one instance of that transferring to the trained/greedy policy.
+Investigating run 020's single win by hand (comparing the human's and the trained model's solutions to the same deal, then diffing neighboring checkpoints' behavior on it) found something bigger than the win itself: checkpoints right next to the winning one weren't strategically incompetent - they were getting stuck oscillating between 2-3 actions with near-tied Q-values in an exact repeated game state, burning the *entire* step budget with zero further progress. Structurally identical to the undo-loop failure mode found earlier (§10), just a different pair of actions.
+
+This is sound to fix, not just a heuristic patch: Klondike has no randomness once dealt (draws are deterministic given the fixed stock order, hidden cards' identities never change), so an exact state repeat within an episode can provably never reach anywhere the earlier visit couldn't already reach - the same logic `is_stalled()` already relies on for "cycled the whole stock with no progress," generalized to any exact state repeat. Implemented `agent/loop_breaker.py` (`LoopBreakerWrapper`, a `gym.Wrapper` - agent-side, not a change to the environment's own legality rules, so human play via `play.py` is unaffected): tracks exact states visited this episode; on the 3rd visit to any given state, masks out whichever action(s) were taken from it before, forcing a genuinely new choice (or falling back to normal behavior if nothing legal remains).
+
+**Swept every prior run's final checkpoint with and without this wrapper - no retraining, same exact weights, just a different action-selection wrapper at evaluation time** (`agent/sweep_loop_breaker.py`, full results in `runs/loop_breaker_sweep.log`):
+
+| Run | Without loop-breaker | With loop-breaker |
+|---|---|---|
+| 001 (original baseline, before PER/curriculum/reward-shaping/DQfD) | 0/100 | **26/100** |
+| 002 (+ eval) | 0/100 | 26/100 (identical net to 001) |
+| 003 (+ PER) | 0/100 | 0/100 |
+| 004 (+ seeded) | 0/100 | 0/100 |
+| 005 (+ curriculum) | 0/100 | 1/100 |
+| 006 (curriculum v2) | 0/100 | 0/100 |
+| 007 (+ hidden3) | 0/100 | 0/100 |
+| 008 (no undo) | 0/100 | 0/100 |
+| 009 (decomposed+symaug) | 0/100 | 19/100 |
+| 010 (slow eps) | 0/100 | 0/100 |
+| 011 (BC finetune) | 0/100 | 18/100 |
+| 013 (reward shaping+stallfix) | 0/100 | 5/100 |
+| 014 (dual reheat) | 0/100 | 8/100 |
+| 015 (epsilon floor 0.15) | 0/100 | 20/100 |
+| 016 (BC wide finetune) | 0/100 | 15/100 |
+| 017 (DQfD baseline) | 0/100 | 27/100 |
+| 018 (DQfD, 100k demos) | 0/100 | **38/100 (best of all 19)** |
+| 019 (DQfD, margin=5.0) | 0/100 | 22/100 |
+| 020 (DQfD + eps floor) | 0/100 | 27/100 |
+
+(012 skipped - no final checkpoint, killed mid-flight for the `is_stalled` bug.)
+
+**Every single one of the 19 evaluated runs showed exactly 0/100 without the loop-breaker** - the "flat 0% eval win rate" that held across the entire project wasn't primarily a training failure, it was this same argmax-degeneracy artifact, universally. With it removed: all four DQfD runs (017-020) land in the strongest tier (22-38%), and **run 018's "demo count doesn't matter" conclusion needs revising** - it's actually the single best run of the project (38%) once the artifact is removed, meaningfully ahead of run 017 (27%) with 3x fewer demos. Some runs (003, 004, 006, 007, 008, 010) show genuinely ~0 even with the fix - real incompetence, not masked competence, so this doesn't retroactively validate everything either. And run 001, the very first and simplest baseline, already had 26% real capability the whole time.
+
+Wired into `agent/train.py` on both the training and eval envs, on by default (`--no-loop-breaker` to disable and exactly reproduce runs 001-020's behavior), following the same default-on/opt-out pattern as `--double-dqn`/`--prioritized-replay`.
+
+## 22. Current state / open questions for next time
+
+- **The central finding of the session, revised**: it's not "no policy has learned to win" - several already had, substantially, and the project's real bottleneck for most of its duration was an evaluation/action-selection artifact, not (solely) a learning failure. The honest open question is now "how much of each technique's measured effect (PER, curriculum, reward shaping, DQfD, epsilon tuning) was also confounded by this same artifact," which the sweep above only partially answers (final checkpoints only, not full training trajectories).
 - Natural next directions:
-  - **Re-run run 020's exact configuration with a different seed** (or several), to see whether solving 1/100 fixed deals at some point during training is a repeatable rate for this configuration or a one-off. This is the single most important thing to check before reading anything more into it.
-  - **Longer training** at this same configuration (DQfD + 0.15 floor), since the win appeared well past the midpoint (step 250k of 400k) - a longer run might show more such events, or show whether they become more frequent/stable over time.
-  - **Qualitative inspection** of `checkpoint_250000.pt` specifically (replay the win by hand, e.g. via play.py-style step-through, and compare its behavior on nearby non-won deals) - now has a concrete, high-value target rather than an arbitrary mid-training snapshot.
-  - The undo-loop finding (§10) still suggests a narrower diagnostic worth trying: checking how often greedy eval rollouts get stuck in short repeating cycles across the fixed eval set, to see if that's still the dominant failure mode on the deals this configuration doesn't solve.
+  - **Re-run training with the loop-breaker wired in from the start** (not just at eval time) - since if the training-time behavior policy was also getting stuck in these loops during self-play, a meaningful fraction of collected experience may have been wasted oscillation instead of reaching genuine outcomes. The most promising config to start from is DQfD + higher epsilon floor (run 020's setup, already the strongest with post-hoc loop-breaking) or DQfD + 100k demos (run 018, the best post-hoc result).
+  - **Re-sweep intermediate checkpoints, not just final ones**, across the strongest runs (017-020, 001, 009, 011, 015, 016) to see the *trajectory* of hidden competence over training, not just its end state - run 020 already showed real fragility checkpoint-to-checkpoint (§20), so the final-checkpoint numbers above are a lower bound at best, an arbitrary sample at worst.
+  - Investigate *why* runs 003/004/006/007/008/010 show genuinely ~0 even with the fix - is there something about PER-alone, curriculum-alone, the deeper network, no-undo, or slow-epsilon-decay that's actually harmful, independent of the loop artifact?
