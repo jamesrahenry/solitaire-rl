@@ -287,6 +287,7 @@ def main() -> None:
         help="disable LoopBreakerWrapper (agent.loop_breaker) on both the training and eval envs. Found via runs 001-020: every one of them showed a flat 0%% greedy-eval win rate that turned out to be substantially a naive-argmax artifact, not incompetence - the policy would get stuck oscillating between 2-3 actions with near-tied Q-values in an exact repeated game state and burn the whole step budget there. On the 3rd exact repeat of a state, blocks whichever action(s) were taken from it before, forcing a genuinely new choice. Sound (not just heuristic) for this game specifically: Klondike has no randomness once dealt, so an exact state repeat can provably never reach anywhere the earlier visit couldn't already reach. On by default; disable to reproduce the exact behavior of runs 001-020.",
     )
     parser.add_argument("--loop-breaker-threshold", type=int, default=2, help="how many prior visits to an exact state before its previously-taken action(s) get masked out (2 = intervene starting on the 3rd visit)")
+    parser.add_argument("--revisit-penalty", type=float, default=0.0, help="small reward penalty (subtracted, so pass a positive number) applied on the training env only whenever an action lands back in a state already visited this episode - a training signal on top of (not instead of) the loop-breaker mask, which only prevents the current episode's waste, not learning. 0 (default) disables it. Not applied to the eval env, which should reflect unshaped task performance.")
     parser.add_argument("--lr", type=float, default=2.5e-5)
     parser.add_argument(
         "--no-double-dqn",
@@ -394,7 +395,7 @@ def main() -> None:
         env = GameLogger(env, log_path=str(run_dir / "games.jsonl"))
     eval_env = gym.make("Solitaire-v0", allow_undo=args.allow_undo)  # separate instance so evaluation never disturbs the training episode in progress
     if args.loop_breaker:
-        env = LoopBreakerWrapper(env, threshold=args.loop_breaker_threshold)
+        env = LoopBreakerWrapper(env, threshold=args.loop_breaker_threshold, revisit_penalty=args.revisit_penalty)
         eval_env = LoopBreakerWrapper(eval_env, threshold=args.loop_breaker_threshold)
 
     if args.card_encoding == "decomposed":

@@ -20,6 +20,17 @@ couldn't already reach. That's the same reasoning solitaire_gym.game's own
 is_stalled() already relies on for "cycled the whole stock with no
 progress"; this generalizes it to any exact state repeat, not just the
 stock-cycle case.
+
+Optionally also applies a small negative reward on any revisit (not just
+the 3rd+ one the mask blocks), as a training signal on top of the hard
+mask rather than instead of it - the mask alone stops the current episode
+from wasting its budget, but teaches the network nothing; a mild penalty
+gives gradient signal nudging it to avoid needing the mask as often. Kept
+deliberately small (well below any milestone reward) since this is a
+shaping term, not the objective - large enough to add up over a genuinely
+stuck episode's many repeats, small enough not to meaningfully punish a
+single, possibly-legitimate revisit (e.g. backtracking once as part of an
+otherwise-good plan).
 """
 from __future__ import annotations
 
@@ -37,12 +48,19 @@ def _state_key(game) -> tuple:
 
 
 class LoopBreakerWrapper(gym.Wrapper):
-    def __init__(self, env: gym.Env, threshold: int = 2):
+    def __init__(self, env: gym.Env, threshold: int = 2, revisit_penalty: float = 0.0):
         """threshold: how many prior actions must already be recorded from a
         state before its mask gets restricted - 2 means the 3rd visit to
-        that exact state is the first one that gets intervened on."""
+        that exact state is the first one that gets intervened on.
+
+        revisit_penalty: if > 0, subtracted from the reward any time an
+        action lands back in a state already visited this episode (the 1st+
+        repeat, independent of and always at least as early as the
+        threshold-gated mask). 0 (default) disables it - mask-only, no
+        reward shaping."""
         super().__init__(env)
         self.threshold = threshold
+        self.revisit_penalty = revisit_penalty
         self._visited_actions: dict[tuple, list[int]] = {}
 
     def _adjust(self, info: dict) -> dict:
@@ -65,5 +83,13 @@ class LoopBreakerWrapper(gym.Wrapper):
         pre_key = _state_key(self.unwrapped.game)
         self._visited_actions.setdefault(pre_key, []).append(int(action))
         obs, reward, terminated, truncated, info = self.env.step(action)
+        if self.revisit_penalty and _state_key(self.unwrapped.game) in self._visited_actions:
+            # the state we just landed in already has at least one action
+            # recorded from an earlier point in this episode - i.e. we've
+            # been here before (checked post-step, not pre-step: the state we
+            # departed FROM might be brand new even when the action lands
+            # back somewhere old, e.g. a fresh third state whose move
+            # happens to return to the episode's first state)
+            reward -= self.revisit_penalty
         info = self._adjust(info)
         return obs, reward, terminated, truncated, info
