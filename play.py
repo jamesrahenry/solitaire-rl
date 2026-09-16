@@ -83,6 +83,12 @@ def render(game) -> str:
     lines.append(
         f"Waste: {waste}    Stock remaining: {len(game.stock)}    Waste pile size: {len(game.waste)}"
     )
+    pool = len(game.stock) + len(game.waste)
+    if pool > 0:
+        lines.append(
+            f"Draws since progress: {game.draws_since_progress}/{pool} "
+            f"(full stock+waste cycle at {pool}; only actually stuck there if no other move exists either)"
+        )
     lines.append("")
 
     rows = max((len(p) for p in game.tableau), default=0)
