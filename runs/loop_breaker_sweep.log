@@ -1,0 +1,21 @@
+run                                                     no-LB wins  no-LB fnd    LB wins     LB fnd
+001_double_dqn_soft_nstep3                                       0        3.5         26       21.3
+002_double_dqn_soft_nstep3_eval                                  0        3.5         26       21.3
+003_double_dqn_soft_nstep3_per                                   0        3.7          0        4.1
+004_double_dqn_soft_nstep3_per_seeded                            0        3.1          0        9.5
+005_double_dqn_soft_nstep3_per_curriculum                        0        3.5          1        9.0
+006_double_dqn_soft_nstep3_per_curriculum_v2                     0        3.9          0       11.9
+007_double_dqn_soft_nstep3_per_curriculum_hidden3                0        2.3          0        7.2
+008_double_dqn_soft_nstep3_per_no_undo                           0        3.1          0        9.5
+009_double_dqn_soft_nstep3_per_decomposed_symaug                 0        3.9         19       19.3
+010_double_dqn_soft_nstep3_per_slow_eps                          0        3.5          0       10.3
+011_double_dqn_soft_nstep3_per_bc_finetune                       0        4.0         18       17.8
+012_double_dqn_soft_nstep3_per_reward_shaping           (no checkpoint_final.pt found, skipped)
+013_double_dqn_soft_nstep3_per_reward_shaping_stallfix           0        2.3          5       12.8
+014_double_dqn_soft_nstep3_per_reward_shaping_reheat_echo          0        2.3          8       14.4
+015_double_dqn_soft_nstep3_per_reward_shaping_epsfloor015          0        1.4         20       15.5
+016_double_dqn_soft_nstep3_per_bc_wide_finetune                  0        3.1         15       17.5
+017_double_dqn_soft_nstep3_per_dqfd                              0        2.6         27       23.9
+018_double_dqn_soft_nstep3_per_dqfd_moredemo                     0        2.6         38       28.0
+019_double_dqn_soft_nstep3_per_dqfd_highmargin                   0        2.8         22       21.0
+020_double_dqn_soft_nstep3_per_dqfd_epsfloor                     0        2.5         27       23.9

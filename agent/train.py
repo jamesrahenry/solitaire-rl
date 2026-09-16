@@ -50,6 +50,7 @@ from agent.metrics import MetricsLogger, EVAL_CSV_FIELDS, plot_eval
 from agent.run_utils import next_run_dir, save_config, write_readme_start, finalize_readme, TeeLogger
 from agent.curriculum import load_wins, tail_steps_by_step, make_initial_moves
 from agent.dqfd_demos import build_demo_transitions
+from agent.loop_breaker import LoopBreakerWrapper
 
 
 def epsilon_by_step(
@@ -278,6 +279,14 @@ def main() -> None:
     parser.add_argument("--margin", type=float, default=0.8, help="DQfD supervised margin loss constant l(a_E, a): 0 when a is the demonstrated action, else this value")
     parser.add_argument("--margin-loss-weight", type=float, default=1.0, help="weight on the margin loss term relative to the TD loss")
     parser.add_argument("--demo-priority-eps", type=float, default=1.0, help="priority floor added to demo transitions' |TD error| before exponentiating (PER only) - keeps them sampled at a meaningful rate even once their TD-error shrinks, unlike self-play's much tinier built-in floor (1e-6)")
+    parser.add_argument(
+        "--no-loop-breaker",
+        dest="loop_breaker",
+        action="store_false",
+        default=True,
+        help="disable LoopBreakerWrapper (agent.loop_breaker) on both the training and eval envs. Found via runs 001-020: every one of them showed a flat 0%% greedy-eval win rate that turned out to be substantially a naive-argmax artifact, not incompetence - the policy would get stuck oscillating between 2-3 actions with near-tied Q-values in an exact repeated game state and burn the whole step budget there. On the 3rd exact repeat of a state, blocks whichever action(s) were taken from it before, forcing a genuinely new choice. Sound (not just heuristic) for this game specifically: Klondike has no randomness once dealt, so an exact state repeat can provably never reach anywhere the earlier visit couldn't already reach. On by default; disable to reproduce the exact behavior of runs 001-020.",
+    )
+    parser.add_argument("--loop-breaker-threshold", type=int, default=2, help="how many prior visits to an exact state before its previously-taken action(s) get masked out (2 = intervene starting on the 3rd visit)")
     parser.add_argument("--lr", type=float, default=2.5e-5)
     parser.add_argument(
         "--no-double-dqn",
@@ -384,6 +393,9 @@ def main() -> None:
     if not args.no_log_games:
         env = GameLogger(env, log_path=str(run_dir / "games.jsonl"))
     eval_env = gym.make("Solitaire-v0", allow_undo=args.allow_undo)  # separate instance so evaluation never disturbs the training episode in progress
+    if args.loop_breaker:
+        env = LoopBreakerWrapper(env, threshold=args.loop_breaker_threshold)
+        eval_env = LoopBreakerWrapper(eval_env, threshold=args.loop_breaker_threshold)
 
     if args.card_encoding == "decomposed":
         preprocess_fn = preprocess_decomposed
