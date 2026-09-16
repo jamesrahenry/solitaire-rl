@@ -23,6 +23,7 @@ class GameLogger(gym.Wrapper):
         self._actions: list[int] = []
         self._rewards: list[float] = []
         self._last_obs = None
+        self._fully_uncovered_step: int | None = None
 
     def reset(self, *, seed=None, options=None):
         self._flush("abandoned")
@@ -31,6 +32,9 @@ class GameLogger(gym.Wrapper):
         self._actions = []
         self._rewards = []
         self._last_obs = obs
+        self._fully_uncovered_step = None
+        if all(self.unwrapped.game.column_uncovered):
+            self._fully_uncovered_step = 0
         return obs, info
 
     def step(self, action):
@@ -38,6 +42,8 @@ class GameLogger(gym.Wrapper):
         self._actions.append(int(action))
         self._rewards.append(float(reward))
         self._last_obs = obs
+        if self._fully_uncovered_step is None and all(self.unwrapped.game.column_uncovered):
+            self._fully_uncovered_step = len(self._actions)
         if terminated:
             if info.get("stalled"):
                 reason = "stalled"
@@ -67,11 +73,13 @@ class GameLogger(gym.Wrapper):
                 int(self._last_obs["foundations"].sum()) if self._last_obs is not None else None
             ),
             "reason": reason,
+            "fully_uncovered_step": self._fully_uncovered_step,
         }
         with self.log_path.open("a") as f:
             f.write(json.dumps(record) + "\n")
         self._actions = []
         self._rewards = []
+        self._fully_uncovered_step = None
 
 
 def replay(env: gym.Env, record: dict):
