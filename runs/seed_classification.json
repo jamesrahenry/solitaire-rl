@@ -1,0 +1,26 @@
+{
+  "_description": "Ground-truth classification of the 100 fixed eval seeds (900000-900099), built from two sources: (1) direct empirical wins across all 22 project runs + run 021's full 40-checkpoint history (a win is itself proof of solvability, no solver needed), and (2) the ShootMe/Klondike-Solver ground-truth check (agent/klondike_solver_check.py) run against the 28 seeds nothing ever won. The 7 seeds that didn't resolve within the solver's 3,000,000-state search cap are bucketed separately from the 1 proven-unsolvable seed, since they carry different epistemic status (proven-impossible vs merely-unresolved-and-likely-long), but both buckets are treated as excluded for practical purposes given our agent's 1000-step episode cap.",
+  "solvable_by_win": {
+    "count": 72,
+    "note": "won by at least one checkpoint across all runs; solvability is a direct empirical fact, not solver-derived"
+  },
+  "solvable_by_solver": {
+    "count": 20,
+    "seeds": [900000, 900003, 900004, 900006, 900010, 900028, 900030, 900035, 900041, 900046, 900048, 900051, 900053, 900055, 900061, 900062, 900075, 900081, 900092, 900097],
+    "note": "never won by any trained checkpoint, but proven solvable by the ground-truth solver - real, currently-unmet capability gaps, not dead seeds"
+  },
+  "unsolvable": {
+    "count": 1,
+    "seeds": [900033],
+    "note": "proven unsolvable - the solver exhausted its search space (Impossible, max foundation 8 at 81 moves) without finding a solution"
+  },
+  "excluded_inconclusive": {
+    "count": 7,
+    "seeds": [900014, 900038, 900056, 900074, 900077, 900080, 900088],
+    "note": "solver hit its 3,000,000-state cap without resolving either way; proving impossibility costs far more than finding a solution, so these remain unresolved rather than unsolvable. Treated as excluded for practical purposes (per user direction) given our agent's 1000-step episode cap - if solvable at all, likely requires a long solution unlikely to be found reliably within that budget."
+  },
+  "excluded_total": {
+    "count": 8,
+    "seeds": [900014, 900033, 900038, 900056, 900074, 900077, 900080, 900088]
+  }
+}
