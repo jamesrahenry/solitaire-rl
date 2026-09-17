@@ -38,27 +38,24 @@ import numpy as np
 from agent.klondike_solver_check import check_seed
 
 EVAL_SEED_LO, EVAL_SEED_HI = 900_000, 900_100
-MASTER_SEED = 20260916  # fixed, arbitrary - just needs to be stable across runs
-CORPUS_PATH = Path("runs/solvable_corpus.jsonl")
-STATE_PATH = Path("runs/solvable_corpus_state.json")
 
 MOVE_RE = re.compile(r"(?:Minimal solution in|Solved in) (\d+) moves")
 
 
-def load_state() -> dict:
-    if STATE_PATH.exists():
-        return json.loads(STATE_PATH.read_text())
+def load_state(state_path: Path) -> dict:
+    if state_path.exists():
+        return json.loads(state_path.read_text())
     return {"next_index": 0, "accepted": 0, "rejected": 0}
 
 
-def save_state(state: dict) -> None:
-    STATE_PATH.write_text(json.dumps(state, indent=2))
+def save_state(state_path: Path, state: dict) -> None:
+    state_path.write_text(json.dumps(state, indent=2))
 
 
-def candidate_stream(start_index: int):
+def candidate_stream(master_seed: int, start_index: int):
     """Deterministic seed sequence: draw start_index+1 values from a fixed
     RNG and yield from where we left off, skipping the reserved eval range."""
-    rng = np.random.default_rng(MASTER_SEED)
+    rng = np.random.default_rng(master_seed)
     i = 0
     while True:
         seed = int(rng.integers(1, 2**31 - 1))
@@ -73,20 +70,23 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--num-candidates", type=int, default=200, help="how many new candidates to try this run")
     parser.add_argument("--target-corpus-size", type=int, default=None, help="stop early once the corpus reaches this size")
-    parser.add_argument("--max-moves", type=int, default=250)
+    parser.add_argument("--max-moves", type=int, default=250, help="reject solvable seeds needing this many moves or more; use a huge value (e.g. 100000) to disable, for an eval battery that shouldn't be biased toward easy deals")
     parser.add_argument("--max-states", type=int, default=1_000_000, help="solver search cap per candidate - kept modest since rejects are just discarded, not proven unsolvable")
     parser.add_argument("--timeout", type=int, default=30)
+    parser.add_argument("--corpus-path", type=Path, default=Path("runs/solvable_corpus.jsonl"))
+    parser.add_argument("--state-path", type=Path, default=Path("runs/solvable_corpus_state.json"))
+    parser.add_argument("--master-seed", type=int, default=20260916, help="fixed RNG seed for the candidate stream - use a distinct value per corpus so two corpora built independently don't test identical candidates")
     args = parser.parse_args()
 
-    state = load_state()
-    existing_size = sum(1 for _ in CORPUS_PATH.open()) if CORPUS_PATH.exists() else 0
+    state = load_state(args.state_path)
+    existing_size = sum(1 for _ in args.corpus_path.open()) if args.corpus_path.exists() else 0
     print(f"resuming at candidate index {state['next_index']} ({existing_size} already in corpus, "
           f"{state['accepted']} accepted / {state['rejected']} rejected so far)")
 
     tried = 0
     t_start = time.time()
-    with CORPUS_PATH.open("a") as corpus_f:
-        for idx, seed in candidate_stream(state["next_index"]):
+    with args.corpus_path.open("a") as corpus_f:
+        for idx, seed in candidate_stream(args.master_seed, state["next_index"]):
             if tried >= args.num_candidates:
                 break
             if args.target_corpus_size is not None and existing_size >= args.target_corpus_size:
@@ -112,7 +112,7 @@ def main() -> None:
             state["rejected"] += 1
             print(f"  [{tried}/{args.num_candidates}] seed {seed}: rejected ({verdict})", flush=True)
 
-    save_state(state)
+    save_state(args.state_path, state)
     elapsed = time.time() - t_start
     print(f"\ndone: tried {tried} candidates in {elapsed:.1f}s, corpus now has {existing_size} seeds "
           f"(lifetime {state['accepted']} accepted / {state['rejected']} rejected)")
