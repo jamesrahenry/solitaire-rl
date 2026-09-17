@@ -129,8 +129,8 @@ class MetricsLogger:
         fig, axes = plt.subplots(2, 4, figsize=(20, 8))
         fig.suptitle(f"Solitaire DQN training progress (step {int(steps[-1]):,})")
 
-        _line(axes[0, 0], steps, [r["mean_return"] for r in rows], "Mean episode return", "return")
-        _line(axes[0, 1], steps, [r["mean_episode_len"] for r in rows], "Mean episode length", "steps")
+        _line(axes[0, 0], steps, [r["mean_return"] for r in rows], "Mean episode return", "return", trend=True)
+        _line(axes[0, 1], steps, [r["mean_episode_len"] for r in rows], "Mean episode length", "steps", trend=True)
         _line(axes[0, 2], steps, [r["mean_loss"] for r in rows], "Mean training loss", "loss")
         _line(axes[0, 3], steps, [r["lifetime_wins"] for r in rows], "Cumulative training-time wins", "wins (count)")
         axes[0, 3].yaxis.set_major_locator(MaxNLocator(integer=True))
