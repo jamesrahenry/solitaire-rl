@@ -47,6 +47,7 @@ from agent.replay_buffer import ReplayBuffer
 from agent.prioritized_replay_buffer import PrioritizedReplayBuffer
 from agent.nstep_buffer import NStepAccumulator
 from agent.metrics import MetricsLogger, EVAL_CSV_FIELDS, plot_eval
+from agent.structure_metrics import structure_fields, compute_structure_row
 from agent.run_utils import next_run_dir, save_config, write_readme_start, finalize_readme, TeeLogger
 from agent.curriculum import load_wins, tail_steps_by_step, make_initial_moves
 from agent.dqfd_demos import build_demo_transitions
@@ -456,10 +457,15 @@ def main() -> None:
             num_hidden_layers=args.hidden_layers,
             hidden_dim=args.hidden_dim,
         ).to(args.device)
+    # Snapshot the true random init (this exact seed's, per torch.manual_seed
+    # above) before any --resume-from load overwrites it -- the reference
+    # point structure_metrics diffs every later snapshot against.
+    init_state = {k: v.detach().clone().cpu() for k, v in online_net.state_dict().items()}
     if args.resume_from:
         online_net.load_state_dict(torch.load(args.resume_from, map_location=args.device, weights_only=True))
     target_net.load_state_dict(online_net.state_dict())
     target_net.eval()
+    structure_metrics = MetricsLogger(str(run_dir / "structure_metrics.csv"), fields=structure_fields(init_state))
 
     optimizer = torch.optim.Adam(online_net.parameters(), lr=args.lr)
     num_demo = args.num_demo_transitions if args.demo_source else 0
@@ -705,6 +711,7 @@ def main() -> None:
 
         if step % args.checkpoint_every == 0:
             torch.save(online_net.state_dict(), run_dir / f"checkpoint_{step}.pt")
+            structure_metrics.log(**compute_structure_row(step, init_state, online_net.state_dict()))
 
         if step % args.eval_every == 0:
             last_eval_stats = evaluate(online_net, eval_env, args.eval_episodes, args.device, preprocess_fn, eval_seeds=eval_seeds)
@@ -725,6 +732,8 @@ def main() -> None:
             plot_eval(str(run_dir / "eval_metrics.csv"), str(eval_plot_path))
 
     torch.save(online_net.state_dict(), run_dir / "checkpoint_final.pt")
+    if args.steps % args.checkpoint_every != 0:  # avoid a duplicate row when it divides evenly
+        structure_metrics.log(**compute_structure_row(args.steps, init_state, online_net.state_dict()))
     log(f"done. saved final checkpoint to {run_dir / 'checkpoint_final.pt'}")
 
     finalize_readme(
