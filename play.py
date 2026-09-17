@@ -10,6 +10,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+from collections import Counter
 
 import numpy as np
 import gymnasium as gym
@@ -19,9 +20,12 @@ from solitaire_gym.cards import NUM_RANKS, card_str, color_of
 from solitaire_gym.logging_wrapper import GameLogger
 from solitaire_gym.game import (
     ACTION_DRAW,
+    ACTION_FOUNDATION_TO_TABLEAU_START,
     ACTION_TABLEAU_TO_FOUNDATION_START,
+    ACTION_TABLEAU_TO_TABLEAU_START,
     ACTION_WASTE_TO_FOUNDATION,
     ACTION_WASTE_TO_TABLEAU_START,
+    NUM_ACTIONS,
     NUM_TABLEAU,
     foundation_move_action,
     tableau_move_action,
@@ -107,6 +111,50 @@ def render(game) -> str:
     return "\n".join(lines)
 
 
+def categorize_action(action: int) -> str:
+    """Bucket an action id into a human-readable move type, for the
+    end-of-game summary - purely a display concern, so kept out of
+    GameLogger's leaner training-episode record."""
+    if action == ACTION_DRAW:
+        return "draw"
+    if ACTION_WASTE_TO_TABLEAU_START <= action < ACTION_WASTE_TO_FOUNDATION:
+        return "waste-to-tableau"
+    if action == ACTION_WASTE_TO_FOUNDATION:
+        return "waste-to-foundation"
+    if ACTION_TABLEAU_TO_FOUNDATION_START <= action < ACTION_TABLEAU_TO_TABLEAU_START:
+        return "tableau-to-foundation"
+    if ACTION_TABLEAU_TO_TABLEAU_START <= action < ACTION_FOUNDATION_TO_TABLEAU_START:
+        return "tableau-to-tableau"
+    if ACTION_FOUNDATION_TO_TABLEAU_START <= action < NUM_ACTIONS:
+        return "foundation-to-tableau (undo)"
+    return "unknown"
+
+
+def print_summary(
+    outcome: str,
+    seed: int,
+    game,
+    total_reward: float,
+    illegal_count: int,
+    move_counts: Counter,
+    fully_uncovered_step: int | None,
+) -> None:
+    num_moves = sum(move_counts.values())
+    print()
+    print(f"=== {outcome} ===")
+    print(f"Seed: {seed}")
+    print(f"Moves made: {num_moves}  (illegal attempts: {illegal_count})")
+    breakdown = ", ".join(f"{name}={count}" for name, count in move_counts.most_common() if count)
+    if breakdown:
+        print(f"  breakdown: {breakdown}")
+    print(f"Final foundation total: {sum(game.foundations)}/52")
+    if fully_uncovered_step is not None:
+        print(f"Tableau fully uncovered at move {fully_uncovered_step}")
+    else:
+        print("Tableau never fully uncovered")
+    print(f"Final score: {total_reward:.2f}")
+
+
 def _check_col(col: int, label: str) -> None:
     if not 0 <= col < NUM_TABLEAU:
         raise ValueError(f"{label} column must be between 1 and {NUM_TABLEAU}")
@@ -169,12 +217,20 @@ def main() -> None:
         "--seed", "-s", type=int, default=None, help="deal seed, for reproducing a specific game"
     )
     args = parser.parse_args()
-    seed = args.seed
+
+    # Always resolve to a concrete, known seed - even when the user doesn't
+    # pass --seed and 'new' games don't either - so every game (including
+    # ones started with no seed at all) can be reported and later replayed.
+    rng = np.random.default_rng()
+    current_seed = args.seed if args.seed is not None else int(rng.integers(0, 2**31 - 1))
 
     env = GameLogger(gym.make("Solitaire-v0"), log_path="logs/games.jsonl")
-    obs, info = env.reset(seed=seed)
+    obs, info = env.reset(seed=current_seed)
     game = env.unwrapped.game
     total_reward = 0.0
+    illegal_count = 0
+    move_counts: Counter = Counter()
+    fully_uncovered_step: int | None = 0 if all(game.column_uncovered) else None
 
     print(HELP)
     print(f"(games are logged to {env.log_path})")
@@ -191,13 +247,19 @@ def main() -> None:
             break
 
         if cmd in ("q", "quit", "exit"):
+            if move_counts:
+                print_summary("QUIT", current_seed, game, total_reward, illegal_count, move_counts, fully_uncovered_step)
             break
         if cmd in ("h", "help", "?"):
             print(HELP)
             continue
         if cmd in ("n", "new"):
-            obs, info = env.reset()
+            current_seed = int(rng.integers(0, 2**31 - 1))
+            obs, info = env.reset(seed=current_seed)
             total_reward = 0.0
+            illegal_count = 0
+            move_counts = Counter()
+            fully_uncovered_step = 0 if all(game.column_uncovered) else None
             continue
         if cmd == "m":
             print("legal actions:", np.flatnonzero(info["action_mask"]).tolist())
@@ -211,17 +273,19 @@ def main() -> None:
 
         obs, reward, terminated, truncated, info = env.step(action)
         total_reward += reward
+        move_counts[categorize_action(action)] += 1
+        if fully_uncovered_step is None and all(game.column_uncovered):
+            fully_uncovered_step = sum(move_counts.values())
         if not info["valid_action"]:
             print("Illegal move.")
+            illegal_count += 1
         if terminated:
             print(render(game))
-            if info["stalled"]:
-                print(f"\nStuck — cycled the whole stock with no legal move. Final score: {total_reward:.2f}")
-            else:
-                print(f"\nYou win! Final score: {total_reward:.2f}")
+            outcome = "STUCK (stalled)" if info["stalled"] else "YOU WIN"
+            print_summary(outcome, current_seed, game, total_reward, illegal_count, move_counts, fully_uncovered_step)
             break
         if truncated:
-            print(f"\nOut of moves (truncated). Final score: {total_reward:.2f}")
+            print_summary("OUT OF MOVES (truncated)", current_seed, game, total_reward, illegal_count, move_counts, fully_uncovered_step)
             break
 
     env.close()
