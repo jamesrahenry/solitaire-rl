@@ -185,9 +185,9 @@ def plot_eval(csv_path: str, png_path: str) -> None:
     fig, axes = plt.subplots(1, 3, figsize=(15, 4))
     fig.suptitle(f"Greedy-policy evaluation (no exploration) - step {int(steps[-1]):,}")
 
-    _line(axes[0], steps, [r["eval_win_rate"] for r in rows], "Eval win rate", "win rate")
+    _line(axes[0], steps, [r["eval_win_rate"] for r in rows], "Eval win rate", "win rate", trend=True)
     axes[0].set_ylim(0, 1)
-    _line(axes[1], steps, [r["eval_mean_return"] for r in rows], "Eval mean return", "return")
+    _line(axes[1], steps, [r["eval_mean_return"] for r in rows], "Eval mean return", "return", trend=True)
     _line(axes[2], steps, [r["eval_mean_foundation"] for r in rows], "Eval mean foundation total", "cards (of 52)", trend=True)
 
     fig.tight_layout()
@@ -260,15 +260,24 @@ def _plot_trained_vs_random_wins(ax, train_rows: list[dict], eval_rows: list[dic
 
 
 def _rolling_mean(values: list[float], window: int) -> np.ndarray:
-    """Edge-padded rolling mean, same length as the input, so it overlays
-    directly on the raw series (including its first few points) rather than
-    starting partway through or shifting the x-alignment."""
+    """Expanding-then-rolling mean, same length as the input: point i is the
+    mean of the last min(window, i+1) points, so it overlays directly on the
+    raw series without shifting x-alignment. (Previously padded the start
+    with copies of the first raw value, which - on a noisy series where that
+    first point happens to be a lucky outlier, as eval_mean_foundation's
+    step-10000 reading in run 022 was - let that one noisy point dominate
+    several leading trend points instead of being averaged down by them.)"""
     arr = np.asarray(values, dtype=float)
-    if len(arr) < 2:
+    n = len(arr)
+    if n < 2:
         return arr
-    window = max(2, min(window, len(arr)))
-    padded = np.concatenate([np.full(window - 1, arr[0]), arr])
-    return np.convolve(padded, np.ones(window) / window, mode="valid")
+    window = max(2, min(window, n))
+    cumsum = np.concatenate([[0.0], np.cumsum(arr)])
+    result = np.empty(n)
+    for i in range(n):
+        lo = max(0, i - window + 1)
+        result[i] = (cumsum[i + 1] - cumsum[lo]) / (i + 1 - lo)
+    return result
 
 
 def _line(ax, x, y, title, ylabel, trend: bool = False) -> None:
