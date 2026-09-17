@@ -101,19 +101,25 @@ def soft_update(target_net: DQN, online_net: DQN, tau: float) -> None:
 EVAL_SEED_BASE = 900_000  # far outside any plausible training seed, and fixed across calls for comparability
 
 
-def evaluate(net: DQN, env: gym.Env, episodes: int, device: str, preprocess_fn=preprocess) -> dict:
+def evaluate(net: DQN, env: gym.Env, episodes: int, device: str, preprocess_fn=preprocess, eval_seeds: list[int] | None = None) -> dict:
     """Run `episodes` full episodes with the policy acting purely greedily
     (epsilon=0, no exploration) against a fixed set of held-out deals, so
     results are directly comparable across evaluation calls at different
     points in training. This is the clean read on whether the *learned
     policy* can win on its own - separate from whatever exploration noise
-    is mixed into the training-time win rate."""
+    is mixed into the training-time win rate.
+
+    eval_seeds, when given, replaces the default fixed EVAL_SEED_BASE+i
+    range with an explicit list (e.g. a much larger ground-truth-solvable
+    battery) - the first `episodes` of them are used, cycling if `episodes`
+    exceeds the list length."""
     net.eval()
     returns, lengths, foundations = [], [], []
     wins = 0
     with torch.no_grad():
         for i in range(episodes):
-            obs, info = env.reset(seed=EVAL_SEED_BASE + i)
+            seed = eval_seeds[i % len(eval_seeds)] if eval_seeds else EVAL_SEED_BASE + i
+            obs, info = env.reset(seed=seed)
             features, mask = preprocess_fn(obs, info)
             ep_return = 0.0
             ep_len = 0
@@ -358,6 +364,25 @@ def main() -> None:
     parser.add_argument("--curriculum-start-tail", type=int, default=10, help="initial number of a win's final moves left for the agent to play (easy - right next to the win)")
     parser.add_argument("--curriculum-end-tail", type=int, default=10_000, help="final tail length (effectively 'whole game' once it exceeds any real game length)")
     parser.add_argument("--curriculum-anneal-steps", type=int, default=300_000, help="steps over which tail length grows from start to end")
+    parser.add_argument(
+        "--solvable-seed-source",
+        default=None,
+        help="jsonl of {'seed': int, ...} records, ground-truth proven solvable (agent/build_solvable_corpus.py); "
+             "when set, fresh-deal episode resets (i.e. not a curriculum-tail start) draw their seed from this pool "
+             "instead of a fully random one, so self-play never burns budget on a deal that can't be won",
+    )
+    parser.add_argument(
+        "--solvable-seed-steps", type=int, default=None,
+        help="only draw fresh-deal seeds from --solvable-seed-source for this many steps, then revert to fully "
+             "random; omit to use the pool for the entire run",
+    )
+    parser.add_argument(
+        "--eval-seed-source",
+        default=None,
+        help="jsonl of {'seed': int, ...} records to evaluate against instead of the fixed 900000+i range "
+             "(e.g. runs/eval_corpus.jsonl, 1000 ground-truth-solvable seeds - a larger battery than the "
+             "original 100, to shrink eval win-rate sampling noise); uses the first --eval-episodes of them",
+    )
     parser.add_argument("--resume-from", default=None, help="checkpoint path to resume from (loads weights into both online and target nets)")
     parser.add_argument("--resume-step", type=int, default=0, help="the step count that checkpoint was saved at - training continues from resume_step+1, and schedules (epsilon/beta/curriculum) pick up from there instead of restarting")
     parser.add_argument("--run-dir", default=None, help="reuse this exact run directory instead of creating a new numbered one (for resuming: appends to the same stdout.log/metrics.csv/games.jsonl rather than starting fresh)")
@@ -397,6 +422,13 @@ def main() -> None:
     if args.loop_breaker:
         env = LoopBreakerWrapper(env, threshold=args.loop_breaker_threshold, revisit_penalty=args.revisit_penalty)
         eval_env = LoopBreakerWrapper(eval_env, threshold=args.loop_breaker_threshold)
+
+    eval_seeds = None
+    if args.eval_seed_source:
+        with open(args.eval_seed_source) as f:
+            eval_seeds = [json.loads(line)["seed"] for line in f]
+        log(f"eval: using {len(eval_seeds)}-seed battery from {args.eval_seed_source} "
+            f"(first {args.eval_episodes} of them per eval pass) instead of the fixed {EVAL_SEED_BASE}+i range")
 
     if args.card_encoding == "decomposed":
         preprocess_fn = preprocess_decomposed
@@ -458,6 +490,14 @@ def main() -> None:
         log(f"curriculum: loaded {len(curriculum_wins)} real seeded wins from {args.curriculum_source}")
     curriculum_completed_count = 0  # incremented when a curriculum-started episode actually finishes, to stay in lockstep with episode_count
 
+    solvable_seeds = []
+    if args.solvable_seed_source:
+        with open(args.solvable_seed_source) as f:
+            solvable_seeds = [json.loads(line)["seed"] for line in f]
+        scope = f"first {args.solvable_seed_steps} steps" if args.solvable_seed_steps else "the entire run"
+        log(f"solvable-seed pool: loaded {len(solvable_seeds)} ground-truth-solvable seeds from "
+            f"{args.solvable_seed_source}, used for fresh-deal resets over {scope}")
+
     def reset_episode(current_step: int) -> tuple:
         """Returns (obs, info, used_curriculum) - the caller is responsible
         for counting used_curriculum against completed episodes, not
@@ -470,7 +510,14 @@ def main() -> None:
             seed, initial_moves = make_initial_moves(win, tail)
             obs, info = env.reset(seed=seed, options={"initial_moves": initial_moves})
             return obs, info, True
-        obs, info = env.reset(seed=int(rng.integers(0, 2**31 - 1)))
+        use_solvable_pool = solvable_seeds and (
+            args.solvable_seed_steps is None or current_step < args.solvable_seed_steps
+        )
+        if use_solvable_pool:
+            fresh_seed = int(solvable_seeds[rng.integers(0, len(solvable_seeds))])
+        else:
+            fresh_seed = int(rng.integers(0, 2**31 - 1))
+        obs, info = env.reset(seed=fresh_seed)
         return obs, info, False
 
     metrics = MetricsLogger(str(run_dir / "metrics.csv"))
@@ -660,7 +707,7 @@ def main() -> None:
             torch.save(online_net.state_dict(), run_dir / f"checkpoint_{step}.pt")
 
         if step % args.eval_every == 0:
-            last_eval_stats = evaluate(online_net, eval_env, args.eval_episodes, args.device, preprocess_fn)
+            last_eval_stats = evaluate(online_net, eval_env, args.eval_episodes, args.device, preprocess_fn, eval_seeds=eval_seeds)
             log(
                 f"  EVAL  step {step:>8}  win_rate={last_eval_stats['win_rate']:.2%}  "
                 f"mean_return={last_eval_stats['mean_return']:7.3f}  "
