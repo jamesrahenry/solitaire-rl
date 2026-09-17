@@ -126,18 +126,18 @@ class MetricsLogger:
             return
 
         steps = [r["step"] for r in rows]
-        fig, axes = plt.subplots(2, 4, figsize=(20, 8))
+        fig, axes = plt.subplots(3, 3, figsize=(16, 11))
         fig.suptitle(f"Solitaire DQN training progress (step {int(steps[-1]):,})")
 
         _line(axes[0, 0], steps, [r["mean_return"] for r in rows], "Mean episode return", "return", trend=True)
         _line(axes[0, 1], steps, [r["mean_episode_len"] for r in rows], "Mean episode length", "steps", trend=True)
         _line(axes[0, 2], steps, [r["mean_loss"] for r in rows], "Mean training loss", "loss")
-        _line(axes[0, 3], steps, [r["lifetime_wins"] for r in rows], "Cumulative training-time wins", "wins (count)")
-        axes[0, 3].yaxis.set_major_locator(MaxNLocator(integer=True))
-        axes[0, 3].set_ylim(bottom=0)  # a cumulative count, never negative
-        _line(axes[1, 0], steps, [r["epsilon"] for r in rows], "Epsilon", "epsilon")
+        _line(axes[1, 0], steps, [r["lifetime_wins"] for r in rows], "Cumulative training-time wins", "wins (count)")
+        axes[1, 0].yaxis.set_major_locator(MaxNLocator(integer=True))
+        axes[1, 0].set_ylim(bottom=0)  # a cumulative count, never negative
+        _line(axes[1, 1], steps, [r["epsilon"] for r in rows], "Epsilon", "epsilon")
         _line(
-            axes[1, 1],
+            axes[1, 2],
             steps,
             [r["mean_final_foundation"] for r in rows],
             "Mean final foundation total",
@@ -145,24 +145,30 @@ class MetricsLogger:
             trend=True,
         )
 
-        ax = axes[1, 2]
+        ax = axes[2, 0]
         ax.stackplot(
             steps,
             [r["win_rate"] for r in rows],
-            [r["stalled_rate"] for r in rows],
             [r["truncated_rate"] for r in rows],
-            labels=["won", "stalled", "truncated"],
+            labels=["won", "truncated"],
         )
         ax.set_title("Episode outcome breakdown (this window)")
         ax.set_xlabel("step")
         ax.set_ylim(0, 1)
         ax.legend(loc="upper left", fontsize=8)
 
+        # stalled_rate gets its own panel with an independent, auto-scaled
+        # y-axis rather than being folded into the stackplot above - at the
+        # rates actually observed (well under 1%) a stacked area is too thin
+        # to read against won/truncated, which doesn't mean stalls stopped
+        # happening, just that this plot couldn't show it either way.
+        _line(axes[2, 1], steps, [r["stalled_rate"] for r in rows], "Stalled rate (this window)", "stalled rate", trend=True)
+
         eval_rows = _read_rows(Path(eval_csv_path)) if eval_csv_path and Path(eval_csv_path).exists() else []
         if eval_rows and "lifetime_wins" in rows[0]:
-            _plot_trained_vs_random_wins(axes[1, 3], rows, eval_rows)
+            _plot_trained_vs_random_wins(axes[2, 2], rows, eval_rows)
         else:
-            axes[1, 3].axis("off")
+            axes[2, 2].axis("off")
 
         fig.tight_layout()
         _atomic_savefig(fig, png_path)
