@@ -58,8 +58,12 @@ def frobenius_drift(w_init: torch.Tensor, w_now: torch.Tensor) -> float:
 def weight_keys(state_dict: dict[str, torch.Tensor]) -> list[str]:
     """Every weight matrix worth tracking: Linear and Embedding weights.
     Biases are excluded -- rank collapse is a statement about the weight
-    matrix's column space, not a vector's magnitude."""
-    return [k for k in state_dict if k.endswith(".weight")]
+    matrix's column space, not a vector's magnitude. Same reasoning
+    excludes LayerNorm's affine scale, which is also named ".weight" but is
+    a 1-D per-channel vector, not a projection matrix (participation ratio
+    of a vector's "eigenspectrum" isn't a meaningful quantity - and
+    effective_dim's W.T shape-unpack would just crash on it anyway)."""
+    return [k for k in state_dict if k.endswith(".weight") and state_dict[k].dim() >= 2]
 
 
 def structure_fields(state_dict: dict[str, torch.Tensor]) -> list[str]:

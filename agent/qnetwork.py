@@ -48,12 +48,26 @@ class DQN(nn.Module):
         embedding_dim: int = 16,
         hidden_dim: int = 512,
         num_hidden_layers: int = 2,
+        layer_norm: bool = False,
     ):
+        """layer_norm: insert LayerNorm(hidden_dim) after each hidden Linear,
+        before its ReLU (not after the final readout layer, which must stay
+        an unnormalized linear map of Q-values). Motivated by live evidence
+        (agent/structure_metrics.py) of severe effective-rank collapse in
+        this exact architecture's hidden layers during training - LayerNorm
+        is a standard mitigation for this in the plasticity-loss literature
+        (Lyle et al.). Off by default so existing recipes stay reproducible."""
         super().__init__()
         self.embedding = nn.Embedding(VOCAB_SIZE, embedding_dim)
-        layers: list[nn.Module] = [nn.Linear(num_features * embedding_dim, hidden_dim), nn.ReLU()]
+        layers: list[nn.Module] = [nn.Linear(num_features * embedding_dim, hidden_dim)]
+        if layer_norm:
+            layers.append(nn.LayerNorm(hidden_dim))
+        layers.append(nn.ReLU())
         for _ in range(num_hidden_layers - 1):
-            layers += [nn.Linear(hidden_dim, hidden_dim), nn.ReLU()]
+            layers.append(nn.Linear(hidden_dim, hidden_dim))
+            if layer_norm:
+                layers.append(nn.LayerNorm(hidden_dim))
+            layers.append(nn.ReLU())
         layers.append(nn.Linear(hidden_dim, num_actions))
         self.net = nn.Sequential(*layers)
 
@@ -93,6 +107,7 @@ class DecomposedDQN(nn.Module):
         suit_dim: int = 4,
         hidden_dim: int = 512,
         num_hidden_layers: int = 2,
+        layer_norm: bool = False,
     ):
         super().__init__()
         if num_slots == NUM_SLOTS and num_foundations == FOUNDATIONS_FEATURES:
@@ -106,9 +121,15 @@ class DecomposedDQN(nn.Module):
 
         per_slot_dim = slot_type_dim + rank_dim + color_dim + suit_dim
         input_dim = num_slots * per_slot_dim + num_foundations
-        layers: list[nn.Module] = [nn.Linear(input_dim, hidden_dim), nn.ReLU()]
+        layers: list[nn.Module] = [nn.Linear(input_dim, hidden_dim)]
+        if layer_norm:
+            layers.append(nn.LayerNorm(hidden_dim))
+        layers.append(nn.ReLU())
         for _ in range(num_hidden_layers - 1):
-            layers += [nn.Linear(hidden_dim, hidden_dim), nn.ReLU()]
+            layers.append(nn.Linear(hidden_dim, hidden_dim))
+            if layer_norm:
+                layers.append(nn.LayerNorm(hidden_dim))
+            layers.append(nn.ReLU())
         layers.append(nn.Linear(hidden_dim, num_actions))
         self.net = nn.Sequential(*layers)
 

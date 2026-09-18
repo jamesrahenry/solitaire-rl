@@ -39,13 +39,14 @@ def load_net(run_dir: Path, checkpoint_path: Path):
     hidden_layers = config.get("hidden_layers", 2)
     hidden_dim = config.get("hidden_dim", 512)
     allow_undo = config.get("allow_undo", True)
+    layer_norm = config.get("layer_norm", False)
 
     if encoding == "decomposed":
         preprocess_fn = preprocess_decomposed
-        net = DecomposedDQN(num_actions=NUM_ACTIONS, num_hidden_layers=hidden_layers, hidden_dim=hidden_dim)
+        net = DecomposedDQN(num_actions=NUM_ACTIONS, num_hidden_layers=hidden_layers, hidden_dim=hidden_dim, layer_norm=layer_norm)
     else:
         preprocess_fn = preprocess
-        net = DQN(num_features=NUM_FEATURES, num_actions=NUM_ACTIONS, num_hidden_layers=hidden_layers, hidden_dim=hidden_dim)
+        net = DQN(num_features=NUM_FEATURES, num_actions=NUM_ACTIONS, num_hidden_layers=hidden_layers, hidden_dim=hidden_dim, layer_norm=layer_norm)
     net.load_state_dict(torch.load(checkpoint_path, map_location="cpu", weights_only=True))
     net.eval()
     return net, preprocess_fn, allow_undo

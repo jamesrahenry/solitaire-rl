@@ -52,6 +52,7 @@ def main() -> None:
     config = json.loads((run_dir / "config.json").read_text())
     hidden_layers = config.get("hidden_layers", 2)
     hidden_dim = config.get("hidden_dim", 512)
+    layer_norm = config.get("layer_norm", False)
 
     checkpoints = sorted(run_dir.glob("checkpoint_*.pt"), key=lambda p: int(p.stem.split("_")[1]) if p.stem.split("_")[1].isdigit() else 10**9)
     checkpoints = [p for p in checkpoints if p.stem.split("_")[1].isdigit()]
@@ -59,7 +60,7 @@ def main() -> None:
 
     matrix = np.zeros((len(checkpoints), 100), dtype=bool)
     for i, (step, ckpt) in enumerate(zip(steps, checkpoints)):
-        net = DQN(num_features=NUM_FEATURES, num_actions=NUM_ACTIONS, num_hidden_layers=hidden_layers, hidden_dim=hidden_dim)
+        net = DQN(num_features=NUM_FEATURES, num_actions=NUM_ACTIONS, num_hidden_layers=hidden_layers, hidden_dim=hidden_dim, layer_norm=layer_norm)
         net.load_state_dict(torch.load(ckpt, map_location="cpu", weights_only=True))
         net.eval()
         matrix[i] = eval_checkpoint(net)

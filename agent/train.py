@@ -245,6 +245,7 @@ def main() -> None:
     parser.add_argument("--n-step", type=int, default=3, help="n-step return length (1 = plain 1-step TD)")
     parser.add_argument("--hidden-layers", type=int, default=2, help="number of hidden layers in the Q-network (default 2, matching all prior runs)")
     parser.add_argument("--hidden-dim", type=int, default=512, help="units per hidden layer (default 512, matching all prior runs) - must match a --resume-from checkpoint's own architecture")
+    parser.add_argument("--layer-norm", action="store_true", help="insert LayerNorm before each hidden layer's ReLU - a standard mitigation for the effective-rank collapse structure_metrics.py has been tracking (off by default, matching all prior runs)")
     parser.add_argument(
         "--card-encoding",
         choices=["raw", "decomposed"],
@@ -436,10 +437,10 @@ def main() -> None:
         swap_features_fn = swap_features_decomposed
         num_features = NUM_DECOMPOSED_FEATURES
         online_net = DecomposedDQN(
-            num_actions=NUM_ACTIONS, num_hidden_layers=args.hidden_layers, hidden_dim=args.hidden_dim
+            num_actions=NUM_ACTIONS, num_hidden_layers=args.hidden_layers, hidden_dim=args.hidden_dim, layer_norm=args.layer_norm
         ).to(args.device)
         target_net = DecomposedDQN(
-            num_actions=NUM_ACTIONS, num_hidden_layers=args.hidden_layers, hidden_dim=args.hidden_dim
+            num_actions=NUM_ACTIONS, num_hidden_layers=args.hidden_layers, hidden_dim=args.hidden_dim, layer_norm=args.layer_norm
         ).to(args.device)
     else:
         preprocess_fn = preprocess
@@ -450,12 +451,14 @@ def main() -> None:
             num_actions=NUM_ACTIONS,
             num_hidden_layers=args.hidden_layers,
             hidden_dim=args.hidden_dim,
+            layer_norm=args.layer_norm,
         ).to(args.device)
         target_net = DQN(
             num_features=NUM_FEATURES,
             num_actions=NUM_ACTIONS,
             num_hidden_layers=args.hidden_layers,
             hidden_dim=args.hidden_dim,
+            layer_norm=args.layer_norm,
         ).to(args.device)
     # Snapshot the true random init (this exact seed's, per torch.manual_seed
     # above) before any --resume-from load overwrites it -- the reference

@@ -30,10 +30,11 @@ def main() -> None:
 
     config = json.loads((args.run_dir / "config.json").read_text())
     torch.manual_seed(config["seed"])
+    layer_norm = config.get("layer_norm", False)
     if config.get("card_encoding") == "decomposed":
-        net = DecomposedDQN(num_actions=NUM_ACTIONS, num_hidden_layers=config["hidden_layers"], hidden_dim=config["hidden_dim"])
+        net = DecomposedDQN(num_actions=NUM_ACTIONS, num_hidden_layers=config["hidden_layers"], hidden_dim=config["hidden_dim"], layer_norm=layer_norm)
     else:
-        net = DQN(num_features=NUM_FEATURES, num_actions=NUM_ACTIONS, num_hidden_layers=config["hidden_layers"], hidden_dim=config["hidden_dim"])
+        net = DQN(num_features=NUM_FEATURES, num_actions=NUM_ACTIONS, num_hidden_layers=config["hidden_layers"], hidden_dim=config["hidden_dim"], layer_norm=layer_norm)
     init_state = {k: v.detach().clone().cpu() for k, v in net.state_dict().items()}
 
     ckpts = [p for p in glob.glob(str(args.run_dir / "checkpoint_*.pt")) if re.search(r"checkpoint_(\d+)\.pt$", p)]
