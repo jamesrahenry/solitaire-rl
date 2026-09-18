@@ -79,6 +79,7 @@ class SolitaireGame:
     waste: list = field(default_factory=list)      # waste[-1] is the visible top card
     draws_since_progress: int = 0  # consecutive draws with no other move in between
     allow_undo: bool = True  # if False, foundation->tableau is permanently illegal (not reset per-episode)
+    foundation_undo_penalty: float = 0.0  # subtracted on every foundation->tableau move; 0 = old behavior (free reversal)
 
     def reset(self, np_random: np.random.Generator) -> None:
         deck = list(range(NUM_CARDS))
@@ -318,7 +319,7 @@ class SolitaireGame:
                 reward += REWARD_REVEAL
                 reward += self._reveal_bonus(src)
 
-        else:  # foundation -> tableau (undo); no penalty, and does not lower the high-water mark
+        else:  # foundation -> tableau (undo); does not lower the high-water mark
             self.draws_since_progress = 0
             suit, dst = divmod(action - ACTION_FOUNDATION_TO_TABLEAU_START, NUM_TABLEAU)
             was_empty = not self.tableau[dst]
@@ -326,6 +327,7 @@ class SolitaireGame:
             card = suit * NUM_RANKS + self.foundations[suit]
             self.tableau[dst].append([card, True])
             reward += self._king_on_empty_bonus(suit, was_empty)
+            reward -= self.foundation_undo_penalty
 
         if self.is_won():
             reward += REWARD_WIN_BONUS

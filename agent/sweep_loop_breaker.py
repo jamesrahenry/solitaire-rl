@@ -40,6 +40,7 @@ def load_net(run_dir: Path, checkpoint_path: Path):
     hidden_dim = config.get("hidden_dim", 512)
     allow_undo = config.get("allow_undo", True)
     layer_norm = config.get("layer_norm", False)
+    foundation_undo_penalty = config.get("foundation_undo_penalty", 0.0)
 
     if encoding == "decomposed":
         preprocess_fn = preprocess_decomposed
@@ -49,14 +50,14 @@ def load_net(run_dir: Path, checkpoint_path: Path):
         net = DQN(num_features=NUM_FEATURES, num_actions=NUM_ACTIONS, num_hidden_layers=hidden_layers, hidden_dim=hidden_dim, layer_norm=layer_norm)
     net.load_state_dict(torch.load(checkpoint_path, map_location="cpu", weights_only=True))
     net.eval()
-    return net, preprocess_fn, allow_undo
+    return net, preprocess_fn, allow_undo, foundation_undo_penalty
 
 
-def run_eval(net, preprocess_fn, allow_undo: bool, use_loop_breaker: bool, episodes: int = 100, max_steps: int = 1000):
+def run_eval(net, preprocess_fn, allow_undo: bool, use_loop_breaker: bool, foundation_undo_penalty: float = 0.0, episodes: int = 100, max_steps: int = 1000):
     wins = 0
     total_foundation = 0
     for i in range(episodes):
-        env = gym.make("Solitaire-v0", allow_undo=allow_undo)
+        env = gym.make("Solitaire-v0", allow_undo=allow_undo, foundation_undo_penalty=foundation_undo_penalty)
         if use_loop_breaker:
             env = LoopBreakerWrapper(env)
         obs, info = env.reset(seed=EVAL_SEED_BASE + i)
@@ -94,12 +95,12 @@ def main() -> None:
             print(f"{run_dir.name:<55} (no checkpoint_final.pt found, skipped)")
             continue
         try:
-            net, preprocess_fn, allow_undo = load_net(run_dir, checkpoint_path)
+            net, preprocess_fn, allow_undo, foundation_undo_penalty = load_net(run_dir, checkpoint_path)
         except Exception as e:
             print(f"{run_dir.name:<55} (failed to load: {e})")
             continue
-        wins0, fnd0 = run_eval(net, preprocess_fn, allow_undo, use_loop_breaker=False)
-        wins1, fnd1 = run_eval(net, preprocess_fn, allow_undo, use_loop_breaker=True)
+        wins0, fnd0 = run_eval(net, preprocess_fn, allow_undo, use_loop_breaker=False, foundation_undo_penalty=foundation_undo_penalty)
+        wins1, fnd1 = run_eval(net, preprocess_fn, allow_undo, use_loop_breaker=True, foundation_undo_penalty=foundation_undo_penalty)
         print(f"{run_dir.name:<55} {wins0:>10} {fnd0:>10.1f} {wins1:>10} {fnd1:>10.1f}")
 
 

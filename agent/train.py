@@ -266,6 +266,12 @@ def main() -> None:
         help="make foundation->tableau (undo) permanently illegal, shrinking the *effective* action space from 590 to 562 (the Discrete(590) dimension itself is unchanged, for checkpoint/network compatibility - those 28 actions are just always masked out)",
     )
     parser.add_argument(
+        "--foundation-undo-penalty", type=float, default=0.0,
+        help="reward subtracted on every foundation->tableau (undo) move; 0 (default, matching all prior runs) means reversing a foundation move is free. "
+             "Motivated by measured behavior: run 023's game logs show ~75%% of foundation-sends eventually get undone, and undoing costs nothing while a "
+             "genuine new high-water-mark send earns +10 (REWARD_NEW_FOUNDATION_HIGH) - a send/undo/resend round trip nets nearly the full +10 for free.",
+    )
+    parser.add_argument(
         "--no-prioritized-replay",
         dest="prioritized_replay",
         action="store_false",
@@ -417,10 +423,10 @@ def main() -> None:
     log = TeeLogger(run_dir / "stdout.log", append=bool(args.resume_from))
     log(f"run directory: {run_dir}" + (f" (resuming from step {args.resume_step})" if args.resume_from else ""))
 
-    env = gym.make("Solitaire-v0", allow_undo=args.allow_undo)
+    env = gym.make("Solitaire-v0", allow_undo=args.allow_undo, foundation_undo_penalty=args.foundation_undo_penalty)
     if not args.no_log_games:
         env = GameLogger(env, log_path=str(run_dir / "games.jsonl"))
-    eval_env = gym.make("Solitaire-v0", allow_undo=args.allow_undo)  # separate instance so evaluation never disturbs the training episode in progress
+    eval_env = gym.make("Solitaire-v0", allow_undo=args.allow_undo, foundation_undo_penalty=args.foundation_undo_penalty)  # separate instance so evaluation never disturbs the training episode in progress
     if args.loop_breaker:
         env = LoopBreakerWrapper(env, threshold=args.loop_breaker_threshold, revisit_penalty=args.revisit_penalty)
         eval_env = LoopBreakerWrapper(eval_env, threshold=args.loop_breaker_threshold)

@@ -53,7 +53,7 @@ def main() -> None:
         eval_seeds = [json.loads(line)["seed"] for line in f]
     print(f"loaded {len(eval_seeds)} eval seeds from {args.eval_seed_source}, using first {args.eval_episodes}")
 
-    eval_env = gym.make("Solitaire-v0", allow_undo=allow_undo)
+    eval_env = gym.make("Solitaire-v0", allow_undo=allow_undo, foundation_undo_penalty=config.get("foundation_undo_penalty", 0.0))
     if loop_breaker:
         eval_env = LoopBreakerWrapper(eval_env, threshold=loop_breaker_threshold)
 
