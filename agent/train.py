@@ -272,6 +272,13 @@ def main() -> None:
              "genuine new high-water-mark send earns +10 (REWARD_NEW_FOUNDATION_HIGH) - a send/undo/resend round trip nets nearly the full +10 for free.",
     )
     parser.add_argument(
+        "--foundation-reward-ramp", type=float, default=0.0,
+        help="max extra multiplier on REWARD_NEW_FOUNDATION_HIGH, phased in continuously (not a hard switch) as hidden tableau cards get revealed - "
+             "1.0 at the deal, 1+this value once fully uncovered. 0 (default, matching all prior runs) keeps the reward flat throughout. Motivated by "
+             "the current reward function already being tableau-heavy (REWARD_REVEAL=50/COLUMN_UNCOVERED=30/KING_ON_EMPTY=40 vs. foundation's 10), "
+             "leaving the post-uncover endgame reward-sparse - exactly the phase where fully-uncovered-but-truncated games were found to stall.",
+    )
+    parser.add_argument(
         "--no-prioritized-replay",
         dest="prioritized_replay",
         action="store_false",
@@ -423,10 +430,10 @@ def main() -> None:
     log = TeeLogger(run_dir / "stdout.log", append=bool(args.resume_from))
     log(f"run directory: {run_dir}" + (f" (resuming from step {args.resume_step})" if args.resume_from else ""))
 
-    env = gym.make("Solitaire-v0", allow_undo=args.allow_undo, foundation_undo_penalty=args.foundation_undo_penalty)
+    env = gym.make("Solitaire-v0", allow_undo=args.allow_undo, foundation_undo_penalty=args.foundation_undo_penalty, foundation_reward_ramp=args.foundation_reward_ramp)
     if not args.no_log_games:
         env = GameLogger(env, log_path=str(run_dir / "games.jsonl"))
-    eval_env = gym.make("Solitaire-v0", allow_undo=args.allow_undo, foundation_undo_penalty=args.foundation_undo_penalty)  # separate instance so evaluation never disturbs the training episode in progress
+    eval_env = gym.make("Solitaire-v0", allow_undo=args.allow_undo, foundation_undo_penalty=args.foundation_undo_penalty, foundation_reward_ramp=args.foundation_reward_ramp)  # separate instance so evaluation never disturbs the training episode in progress
     if args.loop_breaker:
         env = LoopBreakerWrapper(env, threshold=args.loop_breaker_threshold, revisit_penalty=args.revisit_penalty)
         eval_env = LoopBreakerWrapper(eval_env, threshold=args.loop_breaker_threshold)

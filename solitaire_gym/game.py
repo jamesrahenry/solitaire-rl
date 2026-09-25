@@ -57,6 +57,8 @@ def foundation_move_action(suit: int, dst: int) -> int:
     return ACTION_FOUNDATION_TO_TABLEAU_START + suit * NUM_TABLEAU + dst
 
 
+INITIAL_HIDDEN_CARDS = sum(range(NUM_TABLEAU))  # 21 for a standard 7-column deal (0+1+...+6 face-down per column)
+
 REWARD_NEW_FOUNDATION_HIGH = 10.0  # only for exceeding a suit's high-water mark, not any foundation move
 REWARD_REVEAL = 50.0                # flipping a previously hidden tableau card face-up
 REWARD_KING_ON_EMPTY = 40.0          # a king lands on an empty tableau column, first time for that column only
@@ -80,6 +82,7 @@ class SolitaireGame:
     draws_since_progress: int = 0  # consecutive draws with no other move in between
     allow_undo: bool = True  # if False, foundation->tableau is permanently illegal (not reset per-episode)
     foundation_undo_penalty: float = 0.0  # subtracted on every foundation->tableau move; 0 = old behavior (free reversal)
+    foundation_reward_ramp: float = 0.0  # max extra multiplier on REWARD_NEW_FOUNDATION_HIGH, phased in continuously as hidden cards get revealed; 0 = old behavior (flat)
 
     def reset(self, np_random: np.random.Generator) -> None:
         deck = list(range(NUM_CARDS))
@@ -113,15 +116,30 @@ class SolitaireGame:
             return True
         return False
 
+    def _hidden_card_count(self) -> int:
+        return sum(1 for pile in self.tableau for _, face_up in pile if not face_up)
+
+    def _foundation_reward_multiplier(self) -> float:
+        """1.0 at the start of the deal, ramping continuously up to
+        1 + foundation_reward_ramp as hidden cards get revealed (reaching
+        the max once the tableau is fully uncovered) - a smooth phase-in
+        rather than a hard switch at the uncover moment, so there's no
+        single-instant discontinuity in incentives right at the boundary."""
+        if not self.foundation_reward_ramp:
+            return 1.0
+        uncovered_fraction = 1.0 - self._hidden_card_count() / INITIAL_HIDDEN_CARDS
+        return 1.0 + self.foundation_reward_ramp * uncovered_fraction
+
     def _add_to_foundation(self, card: int) -> float:
         """Place `card` on its suit's foundation and return the reward for
-        doing so: +1 only if this sets a new high-water mark for the suit,
+        doing so: REWARD_NEW_FOUNDATION_HIGH (scaled by the current phase-in
+        multiplier) only if this sets a new high-water mark for the suit,
         0 if it's just re-reaching a level already banked once before."""
         suit = suit_of(card)
         self.foundations[suit] += 1
         if self.foundations[suit] > self.foundation_high_water[suit]:
             self.foundation_high_water[suit] = self.foundations[suit]
-            return REWARD_NEW_FOUNDATION_HIGH
+            return REWARD_NEW_FOUNDATION_HIGH * self._foundation_reward_multiplier()
         return 0.0
 
     def _reveal_bonus(self, col: int) -> float:

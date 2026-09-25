@@ -20,12 +20,12 @@ FACE_DOWN = -1
 class SolitaireEnv(gym.Env):
     metadata = {"render_modes": ["human", "ansi"], "render_fps": 4}
 
-    def __init__(self, render_mode: str | None = None, allow_undo: bool = True, foundation_undo_penalty: float = 0.0):
+    def __init__(self, render_mode: str | None = None, allow_undo: bool = True, foundation_undo_penalty: float = 0.0, foundation_reward_ramp: float = 0.0):
         super().__init__()
         assert render_mode is None or render_mode in self.metadata["render_modes"]
         self.render_mode = render_mode
 
-        self.game = SolitaireGame(allow_undo=allow_undo, foundation_undo_penalty=foundation_undo_penalty)
+        self.game = SolitaireGame(allow_undo=allow_undo, foundation_undo_penalty=foundation_undo_penalty, foundation_reward_ramp=foundation_reward_ramp)
         self.action_space = spaces.Discrete(NUM_ACTIONS)
         self.observation_space = spaces.Dict(
             {
