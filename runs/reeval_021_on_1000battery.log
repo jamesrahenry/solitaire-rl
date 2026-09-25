@@ -1,0 +1,43 @@
+loaded 1000 eval seeds from runs/eval_corpus.jsonl, using first 200
+step    10000: win_rate=34.50%  mean_foundation= 25.6/52
+step    20000: win_rate=23.50%  mean_foundation= 21.7/52
+step    30000: win_rate=25.00%  mean_foundation= 22.4/52
+step    40000: win_rate=22.50%  mean_foundation= 22.6/52
+step    50000: win_rate=35.00%  mean_foundation= 25.0/52
+step    60000: win_rate=35.50%  mean_foundation= 25.4/52
+step    70000: win_rate=31.50%  mean_foundation= 23.2/52
+step    80000: win_rate=37.00%  mean_foundation= 25.8/52
+step    90000: win_rate=32.00%  mean_foundation= 23.9/52
+step   100000: win_rate=14.50%  mean_foundation= 17.8/52
+step   110000: win_rate=23.50%  mean_foundation= 22.0/52
+step   120000: win_rate=28.50%  mean_foundation= 22.7/52
+step   130000: win_rate=37.50%  mean_foundation= 26.6/52
+step   140000: win_rate=29.00%  mean_foundation= 23.2/52
+step   150000: win_rate=33.50%  mean_foundation= 25.3/52
+step   160000: win_rate=36.50%  mean_foundation= 27.4/52
+step   170000: win_rate=18.00%  mean_foundation= 20.9/52
+step   180000: win_rate=35.00%  mean_foundation= 26.2/52
+step   190000: win_rate=25.00%  mean_foundation= 23.9/52
+step   200000: win_rate=28.00%  mean_foundation= 24.1/52
+step   210000: win_rate=35.00%  mean_foundation= 26.0/52
+step   220000: win_rate=35.50%  mean_foundation= 26.0/52
+step   230000: win_rate=20.00%  mean_foundation= 22.2/52
+step   240000: win_rate=21.50%  mean_foundation= 21.6/52
+step   250000: win_rate=34.50%  mean_foundation= 25.7/52
+step   260000: win_rate=32.50%  mean_foundation= 25.3/52
+step   270000: win_rate=32.00%  mean_foundation= 25.5/52
+step   280000: win_rate=38.50%  mean_foundation= 27.4/52
+step   290000: win_rate=37.50%  mean_foundation= 26.9/52
+step   300000: win_rate=36.00%  mean_foundation= 27.7/52
+step   310000: win_rate=35.00%  mean_foundation= 25.8/52
+step   320000: win_rate=31.00%  mean_foundation= 26.2/52
+step   330000: win_rate=20.50%  mean_foundation= 21.9/52
+step   340000: win_rate=27.00%  mean_foundation= 24.2/52
+step   350000: win_rate=38.00%  mean_foundation= 27.7/52
+step   360000: win_rate=30.50%  mean_foundation= 24.6/52
+step   370000: win_rate=40.50%  mean_foundation= 28.2/52
+step   380000: win_rate=29.50%  mean_foundation= 24.8/52
+step   390000: win_rate=30.50%  mean_foundation= 25.2/52
+step   400000: win_rate=31.50%  mean_foundation= 25.5/52
+
+saved to runs/021_double_dqn_soft_nstep3_per_dqfd_moredemo_epsfloor_loopbreaker/reeval_eval_corpus.json

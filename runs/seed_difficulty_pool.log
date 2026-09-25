@@ -1,0 +1,30 @@
+001_double_dqn_soft_nstep3: 26/100 wins (final checkpoint, loop-breaker on)
+002_double_dqn_soft_nstep3_eval: 26/100 wins (final checkpoint, loop-breaker on)
+003_double_dqn_soft_nstep3_per: 0/100 wins (final checkpoint, loop-breaker on)
+004_double_dqn_soft_nstep3_per_seeded: 0/100 wins (final checkpoint, loop-breaker on)
+005_double_dqn_soft_nstep3_per_curriculum: 1/100 wins (final checkpoint, loop-breaker on)
+006_double_dqn_soft_nstep3_per_curriculum_v2: 0/100 wins (final checkpoint, loop-breaker on)
+007_double_dqn_soft_nstep3_per_curriculum_hidden3: 0/100 wins (final checkpoint, loop-breaker on)
+008_double_dqn_soft_nstep3_per_no_undo: 0/100 wins (final checkpoint, loop-breaker on)
+009_double_dqn_soft_nstep3_per_decomposed_symaug: 19/100 wins (final checkpoint, loop-breaker on)
+010_double_dqn_soft_nstep3_per_slow_eps: 0/100 wins (final checkpoint, loop-breaker on)
+011_double_dqn_soft_nstep3_per_bc_finetune: 18/100 wins (final checkpoint, loop-breaker on)
+012_double_dqn_soft_nstep3_per_reward_shaping: no checkpoint found, skipping
+013_double_dqn_soft_nstep3_per_reward_shaping_stallfix: 5/100 wins (final checkpoint, loop-breaker on)
+014_double_dqn_soft_nstep3_per_reward_shaping_reheat_echo: 8/100 wins (final checkpoint, loop-breaker on)
+015_double_dqn_soft_nstep3_per_reward_shaping_epsfloor015: 20/100 wins (final checkpoint, loop-breaker on)
+016_double_dqn_soft_nstep3_per_bc_wide_finetune: 15/100 wins (final checkpoint, loop-breaker on)
+017_double_dqn_soft_nstep3_per_dqfd: 27/100 wins (final checkpoint, loop-breaker on)
+018_double_dqn_soft_nstep3_per_dqfd_moredemo: 38/100 wins (final checkpoint, loop-breaker on)
+019_double_dqn_soft_nstep3_per_dqfd_highmargin: 22/100 wins (final checkpoint, loop-breaker on)
+020_double_dqn_soft_nstep3_per_dqfd_epsfloor: 27/100 wins (final checkpoint, loop-breaker on)
+021_double_dqn_soft_nstep3_per_dqfd_moredemo_epsfloor_loopbreaker: 33/100 wins (final checkpoint, loop-breaker on)
+022_double_dqn_soft_nstep3_per_dqfd_moredemo_epsfloor_loopbreaker_1p2m: 32/100 wins (final checkpoint, loop-breaker on)
+folded in run 021's 40-checkpoint matrix (66/100 ever-won there alone)
+
+Across 21 runs' final checkpoints (+ run 021's full 40-checkpoint history):
+  seeds won by at least one checkpoint, anywhere, ever: 72/100
+  seeds NEVER won by anything we've built: 28/100
+  never-won seed ids: [np.int64(900000), np.int64(900003), np.int64(900004), np.int64(900006), np.int64(900010), np.int64(900014), np.int64(900028), np.int64(900030), np.int64(900033), np.int64(900035), np.int64(900038), np.int64(900041), np.int64(900046), np.int64(900048), np.int64(900051), np.int64(900053), np.int64(900055), np.int64(900056), np.int64(900061), np.int64(900062), np.int64(900074), np.int64(900075), np.int64(900077), np.int64(900080), np.int64(900081), np.int64(900088), np.int64(900092), np.int64(900097)]
+
+saved to runs/seed_pooled_ever_won.npy and runs/seed_pooled_per_run.json

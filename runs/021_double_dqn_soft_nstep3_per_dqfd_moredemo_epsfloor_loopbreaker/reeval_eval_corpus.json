@@ -1,0 +1,282 @@
+[
+  {
+    "win_rate": 0.345,
+    "mean_return": 2995.8231000000064,
+    "mean_foundation": 25.575,
+    "mean_length": 767.7,
+    "step": 10000
+  },
+  {
+    "win_rate": 0.235,
+    "mean_return": 2313.618050000007,
+    "mean_foundation": 21.745,
+    "mean_length": 848.2,
+    "step": 20000
+  },
+  {
+    "win_rate": 0.25,
+    "mean_return": 2429.255100000007,
+    "mean_foundation": 22.42,
+    "mean_length": 859.495,
+    "step": 30000
+  },
+  {
+    "win_rate": 0.225,
+    "mean_return": 2386.7814500000077,
+    "mean_foundation": 22.65,
+    "mean_length": 906.86,
+    "step": 40000
+  },
+  {
+    "win_rate": 0.35,
+    "mean_return": 3004.9475500000062,
+    "mean_foundation": 24.965,
+    "mean_length": 775.25,
+    "step": 50000
+  },
+  {
+    "win_rate": 0.355,
+    "mean_return": 3082.142800000007,
+    "mean_foundation": 25.41,
+    "mean_length": 805.725,
+    "step": 60000
+  },
+  {
+    "win_rate": 0.315,
+    "mean_return": 2803.1371000000067,
+    "mean_foundation": 23.245,
+    "mean_length": 806.3,
+    "step": 70000
+  },
+  {
+    "win_rate": 0.37,
+    "mean_return": 3159.3133000000066,
+    "mean_foundation": 25.78,
+    "mean_length": 808.675,
+    "step": 80000
+  },
+  {
+    "win_rate": 0.32,
+    "mean_return": 2875.098050000007,
+    "mean_foundation": 23.895,
+    "mean_length": 845.195,
+    "step": 90000
+  },
+  {
+    "win_rate": 0.145,
+    "mean_return": 1924.3658000000082,
+    "mean_foundation": 17.775,
+    "mean_length": 963.42,
+    "step": 100000
+  },
+  {
+    "win_rate": 0.235,
+    "mean_return": 2434.873900000008,
+    "mean_foundation": 22.045,
+    "mean_length": 912.61,
+    "step": 110000
+  },
+  {
+    "win_rate": 0.285,
+    "mean_return": 2661.672600000007,
+    "mean_foundation": 22.685,
+    "mean_length": 847.75,
+    "step": 120000
+  },
+  {
+    "win_rate": 0.375,
+    "mean_return": 3233.3572000000067,
+    "mean_foundation": 26.56,
+    "mean_length": 824.285,
+    "step": 130000
+  },
+  {
+    "win_rate": 0.29,
+    "mean_return": 2709.389150000007,
+    "mean_foundation": 23.185,
+    "mean_length": 851.09,
+    "step": 140000
+  },
+  {
+    "win_rate": 0.335,
+    "mean_return": 2970.7861500000067,
+    "mean_foundation": 25.345,
+    "mean_length": 801.39,
+    "step": 150000
+  },
+  {
+    "win_rate": 0.365,
+    "mean_return": 3196.373050000007,
+    "mean_foundation": 27.365,
+    "mean_length": 842.7,
+    "step": 160000
+  },
+  {
+    "win_rate": 0.18,
+    "mean_return": 2177.531750000008,
+    "mean_foundation": 20.905,
+    "mean_length": 936.83,
+    "step": 170000
+  },
+  {
+    "win_rate": 0.35,
+    "mean_return": 3068.456250000007,
+    "mean_foundation": 26.25,
+    "mean_length": 809.38,
+    "step": 180000
+  },
+  {
+    "win_rate": 0.25,
+    "mean_return": 2547.3367500000077,
+    "mean_foundation": 23.94,
+    "mean_length": 901.33,
+    "step": 190000
+  },
+  {
+    "win_rate": 0.28,
+    "mean_return": 2688.7754000000073,
+    "mean_foundation": 24.06,
+    "mean_length": 887.465,
+    "step": 200000
+  },
+  {
+    "win_rate": 0.35,
+    "mean_return": 3075.2205000000067,
+    "mean_foundation": 25.995,
+    "mean_length": 852.955,
+    "step": 210000
+  },
+  {
+    "win_rate": 0.355,
+    "mean_return": 3070.436050000006,
+    "mean_foundation": 26.04,
+    "mean_length": 801.4,
+    "step": 220000
+  },
+  {
+    "win_rate": 0.2,
+    "mean_return": 2278.047350000008,
+    "mean_foundation": 22.19,
+    "mean_length": 925.27,
+    "step": 230000
+  },
+  {
+    "win_rate": 0.215,
+    "mean_return": 2325.2579500000074,
+    "mean_foundation": 21.6,
+    "mean_length": 919.21,
+    "step": 240000
+  },
+  {
+    "win_rate": 0.345,
+    "mean_return": 3028.432800000006,
+    "mean_foundation": 25.735,
+    "mean_length": 811.725,
+    "step": 250000
+  },
+  {
+    "win_rate": 0.325,
+    "mean_return": 2941.1572000000074,
+    "mean_foundation": 25.305,
+    "mean_length": 874.285,
+    "step": 260000
+  },
+  {
+    "win_rate": 0.32,
+    "mean_return": 2918.6566000000075,
+    "mean_foundation": 25.475,
+    "mean_length": 854.345,
+    "step": 270000
+  },
+  {
+    "win_rate": 0.385,
+    "mean_return": 3281.9856000000063,
+    "mean_foundation": 27.445,
+    "mean_length": 816.445,
+    "step": 280000
+  },
+  {
+    "win_rate": 0.375,
+    "mean_return": 3212.442950000006,
+    "mean_foundation": 26.935,
+    "mean_length": 815.71,
+    "step": 290000
+  },
+  {
+    "win_rate": 0.36,
+    "mean_return": 3159.688100000006,
+    "mean_foundation": 27.67,
+    "mean_length": 831.195,
+    "step": 300000
+  },
+  {
+    "win_rate": 0.35,
+    "mean_return": 3053.2367000000067,
+    "mean_foundation": 25.795,
+    "mean_length": 806.335,
+    "step": 310000
+  },
+  {
+    "win_rate": 0.31,
+    "mean_return": 2896.355100000007,
+    "mean_foundation": 26.235,
+    "mean_length": 864.495,
+    "step": 320000
+  },
+  {
+    "win_rate": 0.205,
+    "mean_return": 2278.9913500000075,
+    "mean_foundation": 21.855,
+    "mean_length": 915.87,
+    "step": 330000
+  },
+  {
+    "win_rate": 0.27,
+    "mean_return": 2663.1317500000073,
+    "mean_foundation": 24.23,
+    "mean_length": 891.83,
+    "step": 340000
+  },
+  {
+    "win_rate": 0.38,
+    "mean_return": 3271.0903500000063,
+    "mean_foundation": 27.74,
+    "mean_length": 815.97,
+    "step": 350000
+  },
+  {
+    "win_rate": 0.305,
+    "mean_return": 2832.5385500000075,
+    "mean_foundation": 24.625,
+    "mean_length": 846.15,
+    "step": 360000
+  },
+  {
+    "win_rate": 0.405,
+    "mean_return": 3397.684050000006,
+    "mean_foundation": 28.23,
+    "mean_length": 756.6,
+    "step": 370000
+  },
+  {
+    "win_rate": 0.295,
+    "mean_return": 2788.925000000007,
+    "mean_foundation": 24.775,
+    "mean_length": 882.505,
+    "step": 380000
+  },
+  {
+    "win_rate": 0.305,
+    "mean_return": 2855.6379500000075,
+    "mean_foundation": 25.18,
+    "mean_length": 881.21,
+    "step": 390000
+  },
+  {
+    "win_rate": 0.315,
+    "mean_return": 2902.4458500000073,
+    "mean_foundation": 25.46,
+    "mean_length": 860.42,
+    "step": 400000
+  }
+]
