@@ -18,3 +18,7 @@ runs/_smoketest/
 # derived BC training subsets (a deterministic sample of runs/curriculum_wins.jsonl,
 # regenerable from it) - keep the small source corpus, not its large derived slices
 runs/bc_training_subset.jsonl
+
+# the heuristic-harvest corpus itself (225MB+) - regenerable via agent/harvest_wins.py,
+# and too large for a normal git push (GitHub hard-blocks single files over 100MB)
+runs/curriculum_wins.jsonl
