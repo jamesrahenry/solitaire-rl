@@ -316,10 +316,29 @@ A parallel structural investigation (never turned into its own run) found real -
 - `GameLogger` now records `fully_uncovered_step` per episode - checked against real run-021 wins: the tableau is fully uncovered at ~69% of a win's total move count on average, confirming (with real numbers, not just intuition) that uncovering dominates game length, though "pretty much over" after that oversold it - a third of moves are still real work.
 - `agent/metrics.py` fixed two real plotting bugs found by eye, not by instrument: `mean_return`/`mean_episode_len` (training) and `eval_win_rate`/`eval_mean_return` (eval) were missing the trend line `mean_final_foundation` already had, making them unreadable noise clouds and visually overestimating how many episodes score low; and `_rolling_mean`'s edge-padding scheme could let one noisy first data point read as a false ceiling (confirmed on run 022's `eval_mean_foundation`, where the very first, near-random-policy eval point happened to score anomalously high) - replaced with a proper expanding-then-rolling window. Also gave `stalled_rate` (0.6-0.8% of episodes, confirmed still real and happening throughout training, not eliminated) its own dedicated auto-scaled panel, since it was an invisible sliver inside the outcome stackplot.
 
-## 30. Current state / open questions for next time
+## 30. Foundation-reward ramp (run 028), the data-loss incident, and the control/replicate runs (029-031)
+
+**Idea** (user's, from asking when rewards should shift from tableau/waste work to foundation work): scale the foundation milestone reward in lockstep with hidden-card reveals - `--foundation-reward-ramp R` multiplies `REWARD_NEW_FOUNDATION_HIGH` by `1 + R*(1 - hidden_remaining/21)`, so foundation progress is worth little early and up to `1+R` times as much once the tableau is fully uncovered. Opt-in, default 0.0.
+
+**Run 028** (023's recipe, ramp=2.0): overall 26.3% (quarterly 25.3/24.4/28.1/27.5), vs. 023's 31.2%. Apparently negative - but confounded, because the original 55k-episode demo corpus had been lost (below) and 028 trained on a regenerated, much smaller one.
+
+**Data-loss incident (my mistake).** `runs/curriculum_wins.jsonl` (the 225MB, 55,050-episode/6,821-win heuristic harvest used as the DQfD demo source) blocked the GitHub publish (100MB limit). I ran `git filter-repo --invert-paths` on it, which also deleted it from the working tree and pruned the objects; no recovery path worked. The file is now gitignored and was regenerated with `agent/harvest_wins.py` (2,053 episodes, 271 wins - roughly 5% of the original's wins). Lesson: back up any file before a history-rewriting command. The repo was published at https://github.com/jamesrahenry/solitaire-rl with a README.
+
+**Control and replicates.** Run 029 = 023's recipe with ramp=0 on the regenerated corpus; runs 030 (control) and 031 (ramp 2.0) are seed-1 replicates, run in parallel.
+
+| Config | Seed 0 | Seed 1 | Mean |
+|---|---|---|---|
+| Control (ramp 0, fresh corpus) | 29.0% (029) | 30.3% (030) | 29.7% |
+| Ramp 2.0 (fresh corpus) | 26.3% (028) | 28.8% (031) | 27.6% |
+| 023 (original corpus, ramp 0, seed 0) | 31.2% | | |
+
+Reading: the corpus swap costs ~1.5 points (within noise); the ramp is lower on both seeds (by 2.7 and 1.5 points) but the seed-to-seed spread (1.3-2.5 points) is as large as the effect, and each eval point is only 200 episodes (~3 points standard error). Conclusion: the ramp gives no gain and possibly a slight loss; it does not break the plateau. RL lesson: with one seed per config, 028 looked like a clear negative (4.9 points); the control and replicates cut the attributable effect to ~2 points of unresolved significance. Always replicate before attributing a gap to the intervention. All five runs (023, 028-031) sit in a 26-31% band.
+
+## 31. Current state / open questions for next time
 
 - **Where we actually stand:** the project's central result (§21-22) still holds - DQfD + epsilon floor + loop-breaker-in-training reliably produces a policy winning ~30-35% of held-out deals, sustained, not fragile. Runs 023-027 layered a solver-proven curriculum/eval battery on top (real, if not fully isolated from measurement-battery effects) and then hit a genuine plateau (§27) that two targeted interventions (§28) both failed to break - one made things worse (LayerNorm), one confirmed the target behavior is a feature, not a bug (undo-penalty).
 - **Unresolved from §26:** never ran the same-battery cross-eval (021's checkpoints on the 1000-seed battery, or 023's on the old 100-seed range) that would cleanly separate "the new stuff made training better" from "the new eval battery reads higher by construction."
+- **Plateau status:** every intervention since 023 (LayerNorm, undo-penalty x2, foundation ramp) has landed at or below the ~30% band; nothing has broken it.
 - **The one untested idea with a real structural case behind it now:** a multi-head/MoE split giving foundation-related decisions their own pathway, motivated by §28's finding that the network already partially self-organizes this specialization on its own (a quarter of net.0's units), but nothing downstream preserves it, and by LayerNorm's failure mode showing that collapse pressure has to go *somewhere* if not given a dedicated outlet.
 - Still open from the original §23 (never revisited): why runs 003/004/006/007/008/010 showed genuinely ~0 win rate even with the post-hoc loop-breaker fix applied - real incompetence, not just a masked artifact.
   - Longer training and/or a broader eval set (more than 100 fixed deals) to get a tighter estimate of run 021's true win rate and see if it climbs further or has plateaued.
