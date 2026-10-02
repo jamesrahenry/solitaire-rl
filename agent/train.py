@@ -102,7 +102,7 @@ def soft_update(target_net: DQN, online_net: DQN, tau: float) -> None:
 EVAL_SEED_BASE = 900_000  # far outside any plausible training seed, and fixed across calls for comparability
 
 
-def evaluate(net: DQN, env: gym.Env, episodes: int, device: str, preprocess_fn=preprocess, eval_seeds: list[int] | None = None) -> dict:
+def evaluate(net: DQN, env: gym.Env, episodes: int, device: str, preprocess_fn=preprocess, eval_seeds: list[int] | None = None, gamma: float = 0.99) -> dict:
     """Run `episodes` full episodes with the policy acting purely greedily
     (epsilon=0, no exploration) against a fixed set of held-out deals, so
     results are directly comparable across evaluation calls at different
@@ -113,9 +113,16 @@ def evaluate(net: DQN, env: gym.Env, episodes: int, device: str, preprocess_fn=p
     eval_seeds, when given, replaces the default fixed EVAL_SEED_BASE+i
     range with an explicit list (e.g. a much larger ground-truth-solvable
     battery) - the first `episodes` of them are used, cycling if `episodes`
-    exceeds the list length."""
+    exceeds the list length.
+
+    Also reports a value-calibration pair: q0 = the greedy action's Q-value
+    at the deal, and g0 = the discounted (gamma) return the episode then
+    actually realized from that same point. A well-calibrated Q-network has
+    q0 ~ g0; run 029's final checkpoints read q0 ~ 36 against g0 ~ 630,
+    which is what led to the TD-loss change (--td-loss) - win rate alone
+    can't surface a 20x value-scale error."""
     net.eval()
-    returns, lengths, foundations = [], [], []
+    returns, lengths, foundations, q0s, g0s = [], [], [], [], []
     wins = 0
     with torch.no_grad():
         for i in range(episodes):
@@ -124,14 +131,20 @@ def evaluate(net: DQN, env: gym.Env, episodes: int, device: str, preprocess_fn=p
             features, mask = preprocess_fn(obs, info)
             ep_return = 0.0
             ep_len = 0
+            disc_return = 0.0
+            disc = 1.0
             while True:
                 x = torch.from_numpy(features).to(device)
                 m = torch.from_numpy(mask).to(device)
                 q = net(x, m)
                 action = int(q.argmax(dim=1).item())
+                if ep_len == 0:
+                    q0s.append(float(q[0, action].item()))
                 obs, reward, terminated, truncated, info = env.step(action)
                 features, mask = preprocess_fn(obs, info)
                 ep_return += reward
+                disc_return += disc * reward
+                disc *= gamma
                 ep_len += 1
                 if terminated or truncated:
                     if terminated and not info.get("stalled") and int(obs["foundations"].sum()) == 52:
@@ -140,11 +153,14 @@ def evaluate(net: DQN, env: gym.Env, episodes: int, device: str, preprocess_fn=p
             returns.append(ep_return)
             lengths.append(ep_len)
             foundations.append(int(obs["foundations"].sum()))
+            g0s.append(disc_return)
     return {
         "win_rate": wins / episodes,
         "mean_return": float(np.mean(returns)),
         "mean_foundation": float(np.mean(foundations)),
         "mean_length": float(np.mean(lengths)),
+        "q0": float(np.mean(q0s)),
+        "g0": float(np.mean(g0s)),
     }
 
 
@@ -167,10 +183,25 @@ def compute_loss(
     is_weights: torch.Tensor | None = None,
     margin: float = 0.8,
     margin_loss_weight: float = 1.0,
+    td_loss: str = "huber",
+    huber_beta: float = 1.0,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """Returns (loss, per_sample_td_error). td_error is detached and only
     used to refresh priorities in the prioritized replay buffer; it's
     ignored entirely when using plain uniform replay.
+
+    td_loss: "huber" (smooth L1 with transition point huber_beta - runs
+    001-031 used beta=1.0) or "mse". With beta=1 and rewards of +50/+5000,
+    every reward-bearing transition sits in Huber's linear region, where the
+    per-sample gradient is exactly +-1 regardless of the error's size - so
+    the loss behaves as median regression and the reward *magnitude* never
+    reaches the network, only its frequency. The resulting fixed point is
+    roughly Q ~ p / ((1-p)(1-gamma)) for p = fraction of transitions with
+    |r| > 1, which predicts the Q ~ 7 (vs realized returns ~600) measured on
+    run 029. MSE (or a beta at the reward scale) restores mean regression,
+    so a 50-point reveal and a 10-point foundation move pull Q by different
+    amounts. The gradient-norm clip in the training loop still bounds the
+    per-batch update size either way.
 
     If any transitions in the batch are marked is_demo (DQfD, Hester et al.
     2017 - permanent demonstration transitions in the replay buffer), adds
@@ -217,7 +248,10 @@ def compute_loss(
         targets = rewards_t + discounts_t * next_q_selected * (~dones_t).float()
 
     td_errors = q_selected - targets
-    per_sample_loss = F.smooth_l1_loss(q_selected, targets, reduction="none")
+    if td_loss == "mse":
+        per_sample_loss = F.mse_loss(q_selected, targets, reduction="none")
+    else:
+        per_sample_loss = F.smooth_l1_loss(q_selected, targets, reduction="none", beta=huber_beta)
     if is_weights is not None:
         loss = (is_weights * per_sample_loss).mean()
     else:
@@ -309,6 +343,14 @@ def main() -> None:
     )
     parser.add_argument("--loop-breaker-threshold", type=int, default=2, help="how many prior visits to an exact state before its previously-taken action(s) get masked out (2 = intervene starting on the 3rd visit)")
     parser.add_argument("--revisit-penalty", type=float, default=0.0, help="small reward penalty (subtracted, so pass a positive number) applied on the training env only whenever an action lands back in a state already visited this episode - a training signal on top of (not instead of) the loop-breaker mask, which only prevents the current episode's waste, not learning. 0 (default) disables it. Not applied to the eval env, which should reflect unshaped task performance.")
+    parser.add_argument(
+        "--td-loss", choices=["huber", "mse"], default="huber",
+        help="TD loss on the Bellman error. huber (default, matching runs 001-031) = smooth L1 with transition point --huber-beta; "
+             "mse = plain squared error. See compute_loss(): with beta=1 against rewards of 50-5000, Huber saturates on every "
+             "reward-bearing transition and the network learns reward frequency, not magnitude (run 029: Q at the deal ~36 vs "
+             "realized discounted return ~630).",
+    )
+    parser.add_argument("--huber-beta", type=float, default=1.0, help="Huber transition point (|error| below this is quadratic, above is linear). Only used with --td-loss huber. 1.0 matches all prior runs; a value at the reward scale (e.g. 50+) behaves like MSE for ordinary transitions.")
     parser.add_argument("--lr", type=float, default=2.5e-5)
     parser.add_argument(
         "--no-double-dqn",
@@ -657,6 +699,8 @@ def main() -> None:
                     is_weights_t,
                     margin=args.margin,
                     margin_loss_weight=args.margin_loss_weight,
+                    td_loss=args.td_loss,
+                    huber_beta=args.huber_beta,
                 )
             else:
                 batch = buffer.sample(args.batch_size, rng)
@@ -668,6 +712,8 @@ def main() -> None:
                     args.double_dqn,
                     margin=args.margin,
                     margin_loss_weight=args.margin_loss_weight,
+                    td_loss=args.td_loss,
+                    huber_beta=args.huber_beta,
                 )
 
             optimizer.zero_grad()
@@ -730,12 +776,13 @@ def main() -> None:
             structure_metrics.log(**compute_structure_row(step, init_state, online_net.state_dict()))
 
         if step % args.eval_every == 0:
-            last_eval_stats = evaluate(online_net, eval_env, args.eval_episodes, args.device, preprocess_fn, eval_seeds=eval_seeds)
+            last_eval_stats = evaluate(online_net, eval_env, args.eval_episodes, args.device, preprocess_fn, eval_seeds=eval_seeds, gamma=args.gamma)
             log(
                 f"  EVAL  step {step:>8}  win_rate={last_eval_stats['win_rate']:.2%}  "
                 f"mean_return={last_eval_stats['mean_return']:7.3f}  "
                 f"mean_foundation={last_eval_stats['mean_foundation']:5.1f}/52  "
-                f"mean_length={last_eval_stats['mean_length']:5.1f}  (greedy, {args.eval_episodes} fixed deals)"
+                f"mean_length={last_eval_stats['mean_length']:5.1f}  "
+                f"q0={last_eval_stats['q0']:7.1f} vs g0={last_eval_stats['g0']:7.1f}  (greedy, {args.eval_episodes} fixed deals)"
             )
             eval_metrics.log(
                 step=step,
@@ -744,6 +791,8 @@ def main() -> None:
                 eval_mean_return=last_eval_stats["mean_return"],
                 eval_mean_foundation=last_eval_stats["mean_foundation"],
                 eval_mean_length=last_eval_stats["mean_length"],
+                eval_q0=last_eval_stats["q0"],
+                eval_g0=last_eval_stats["g0"],
             )
             plot_eval(str(run_dir / "eval_metrics.csv"), str(eval_plot_path))
 

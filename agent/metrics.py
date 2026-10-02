@@ -36,6 +36,8 @@ EVAL_CSV_FIELDS = [
     "eval_mean_return",
     "eval_mean_foundation",
     "eval_mean_length",
+    "eval_q0",  # greedy action's Q-value at the deal (mean over eval deals)
+    "eval_g0",  # discounted return the episode then actually realized from the deal - calibration partner to eval_q0
 ]
 
 
@@ -131,7 +133,14 @@ class MetricsLogger:
 
         _line(axes[0, 0], steps, [r["mean_return"] for r in rows], "Mean episode return", "return", trend=True)
         _line(axes[0, 1], steps, [r["mean_episode_len"] for r in rows], "Mean episode length", "steps", trend=True)
-        _line(axes[0, 2], steps, [r["mean_loss"] for r in rows], "Mean training loss", "loss")
+        losses = [r["mean_loss"] for r in rows]
+        _line(axes[0, 2], steps, losses, "Mean training loss", "loss")
+        finite_pos = [v for v in losses if np.isfinite(v) and v > 0]
+        if finite_pos and max(finite_pos) / min(finite_pos) > 1000:
+            # --td-loss mse against +50/+5000 rewards starts in the millions
+            # and settles orders of magnitude lower; linear axes show only
+            # the initial spike
+            axes[0, 2].set_yscale("log")
         _line(axes[1, 0], steps, [r["lifetime_wins"] for r in rows], "Cumulative training-time wins", "wins (count)")
         axes[1, 0].yaxis.set_major_locator(MaxNLocator(integer=True))
         axes[1, 0].set_ylim(bottom=0)  # a cumulative count, never negative
@@ -188,13 +197,26 @@ def plot_eval(csv_path: str, png_path: str) -> None:
         return
 
     steps = [r["step"] for r in rows]
-    fig, axes = plt.subplots(1, 3, figsize=(15, 4))
+    has_calibration = "eval_q0" in rows[0] and not all(np.isnan(r["eval_q0"]) for r in rows)
+    fig, axes = plt.subplots(1, 4 if has_calibration else 3, figsize=(20 if has_calibration else 15, 4))
     fig.suptitle(f"Greedy-policy evaluation (no exploration) - step {int(steps[-1]):,}")
 
     _line(axes[0], steps, [r["eval_win_rate"] for r in rows], "Eval win rate", "win rate", trend=True)
     axes[0].set_ylim(0, 1)
     _line(axes[1], steps, [r["eval_mean_return"] for r in rows], "Eval mean return", "return", trend=True)
     _line(axes[2], steps, [r["eval_mean_foundation"] for r in rows], "Eval mean foundation total", "cards (of 52)", trend=True)
+    if has_calibration:
+        # Value calibration: the Q-value the network claims at the deal vs the
+        # discounted return it then actually collected. The two should track;
+        # a persistent gap of 10-20x (as in runs up to 031) means the value
+        # scale never reached the network, whatever the win rate says.
+        ax = axes[3]
+        ax.plot(steps, [r["eval_q0"] for r in rows], label="Q(s0, greedy a)  (predicted)")
+        ax.plot(steps, [r["eval_g0"] for r in rows], label="G0  (realized, discounted)")
+        ax.set_title("Value calibration at the deal")
+        ax.set_xlabel("step")
+        ax.set_ylabel("discounted return")
+        ax.legend(fontsize=7, loc="best")
 
     fig.tight_layout()
     _atomic_savefig(fig, png_path)
