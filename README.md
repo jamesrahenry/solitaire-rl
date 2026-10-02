@@ -30,11 +30,13 @@ For 20 straight runs, greedy-policy evaluation sat at a flat 0% win rate. It tur
 
 Wiring the fix into training itself (not just eval), combined with DQfD (permanent demonstration transitions + a large-margin loss) and a raised epsilon floor, produced the project's first genuinely reliable policy: **sustained 30-40% win rate on held-out deals**, not a fragile one-off.
 
+The second big finding was the loss function. Huber loss with β=1 against rewards of 50-5000 saturates on every reward-bearing transition, so the network was learning reward *frequency*, not magnitude - Q-values at the deal read ~36 against realized returns of ~630, and every reward-shaping experiment for twenty runs had been invisible to the optimizer beyond its sign. Switching the TD loss to MSE (one flag, nothing else changed) took the same recipe from ~30% to **~40% on held-out deals, replicated on two seeds**, with checkpoint-to-checkpoint variance cut by 4x and Q-values calibrated to within 10% of realized returns (§33 of the notebook).
+
 ## A few things that turned out to be true
 
 - **Klondike's own solvability is the real ceiling, not just training.** Sourced (not written) a ground-truth solver ([ShootMe/Klondike-Solver](https://github.com/ShootMe/Klondike-Solver)) to check: of 28 eval seeds nothing had ever won across 22 runs, 20 were provably solvable (real, unmet capability gaps) and only 1 was provably unsolvable — the rest were genuine gaps, not dead deals.
 - **The network's effective rank collapses hard during training** — one hidden layer measured at ~2 effective dimensions (out of ~500 possible) within the first 10-15% of a run, and stayed there. A LayerNorm fix that stopped that collapse made performance *worse*, not better — the collapse pressure just relocated to the one layer that can't be normalized (the Q-value readout).
-- **A behavioral finding that reward-shaping couldn't touch:** ~75% of every foundation-send eventually gets undone. Quadrupling the penalty for undoing (5 -> 20, against a milestone reward of 10) barely moved that number — strong evidence it's a load-bearing strategic move, not a fixable mistake.
+- **A "decisive negative" that turned out to be a loss-function artifact:** ~75% of every foundation-send eventually gets undone, and quadrupling the undo penalty (5 -> 20) didn't move that number. Under the saturated Huber loss, a penalty of 5 and a penalty of 20 produce *the same gradient* — the experiment was blind by construction. Open again under the MSE loss.
 - **"Fully uncovered" doesn't mean "about to win."** Games that reveal every hidden card and then still lose build measurably deeper, more concentrated tableau piles and bank less foundation progress than games that go on to win — confirmed against real game logs, not just a hunch.
 
 ## Project layout

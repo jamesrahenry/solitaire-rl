@@ -1,4 +1,4 @@
-# Session Summary — Solitaire RL Project (2026-09-11 → 2026-09-15)
+# Session Summary — Solitaire RL Project (2026-09-11 → 2026-10-02)
 
 An end-to-end session building a Klondike Solitaire Gymnasium environment from scratch and training a DQN agent against it, for an RL class. Below is what was built, what was learned, and where things stand. (This supersedes the 2026-09-14 version of this file, which stopped after run 014 and the epsilon-reheat experiments.)
 
@@ -342,3 +342,82 @@ Reading: the corpus swap costs ~1.5 points (within noise); the ramp is lower on 
 - **The one untested idea with a real structural case behind it now:** a multi-head/MoE split giving foundation-related decisions their own pathway, motivated by §28's finding that the network already partially self-organizes this specialization on its own (a quarter of net.0's units), but nothing downstream preserves it, and by LayerNorm's failure mode showing that collapse pressure has to go *somewhere* if not given a dedicated outlet.
 - Still open from the original §23 (never revisited): why runs 003/004/006/007/008/010 showed genuinely ~0 win rate even with the post-hoc loop-breaker fix applied - real incompetence, not just a masked artifact.
   - Longer training and/or a broader eval set (more than 100 fixed deals) to get a tighter estimate of run 021's true win rate and see if it climbs further or has plateaued.
+
+## 32. The 2026-09-30 review: five things that had never been measured
+
+A fresh read of the whole notebook, followed by the cheap checks it suggested. None required training; all of them changed the picture.
+
+- **The §26/§31 "never run" cross-eval had been run.** `runs/reeval_021_on_1000battery.log` scores run 021 at **30.6%** on the 1000-seed battery vs 023's 31.2%. The solvable-seed curriculum added nothing; 023's "every quarter above 021" was the battery.
+- **The heuristic harvester scores 18.5%** on the same 200 battery deals the agent is evaluated on. The trained policy (~30%) beats its own teacher by a real margin - previously unknown, since the heuristic had only ever been used to harvest.
+- **Checkpoint-to-checkpoint churn exceeds sampling noise.** Second-half eval SD on the same fixed 200 deals: 029 0.068, 030 0.083, 023 0.072, against a binomial 0.032. 029's `checkpoint_final` reads 16.0% while its step-390k checkpoint reads 33.5%. Every run-vs-run comparison in §28-30 was made through that fog, and "use the final checkpoint" was a coin flip.
+- **~45% of all training experience is thrash.** 65% of training episodes hit the 1000-step cap; replaying 029's late truncated episodes, the last reward-bearing event lands at step ~311 on average - 689 of 1000 steps are post-progress wandering, 84% of such episodes have more than 500. A 400k-step run is ~470 games.
+- **§22 was never controlled.** Run 018, trained *without* the loop-breaker and evaluated with it, scored 38%; run 021 (loop-breaker in training) scored 30.8% on the same 100 seeds. No evidence the training-time wrapper is load-bearing - and a policy trained with it is now fully dependent on it (below).
+
+**Action selection on run 029's 390k checkpoint, same weights, same 200 deals, no retraining** (`agent/eval_action_selection.py`):
+
+| Action selection | Win rate |
+|---|---|
+| argmax + loop-breaker (the logged number) | 33.5% |
+| argmax, no loop-breaker | 0.0% (loops within ~5 moves, mean foundation 2.5/52) |
+| softmax T=0.25 / 0.5 / 1.0 / 2.0, no loop-breaker | 38.0% / 44.0% / **46.0%** / 45.0% |
+| softmax T=5 / T=20, no loop-breaker | 7.5% / 0.0% |
+| softmax T=1.0 + loop-breaker | **52.5%** |
+
+The diagnostic underneath: the **median gap between the best and second-best legal action's Q-value is 0.19**; 85-93% of decisions have a gap under 1.0, on a scale where one reveal is +50. 76% of top-2 pairs are *commuting* moves (each still legal after the other), whose true gap really is ~(1-γ)·r + step cost ≈ 0.51 for a reveal - measured 0.58. So most ties are legitimate, and argmax was treating a 0.5-point difference as a decision and then repeating it deterministically; the loop-breaker treated the symptom (exact repeats), sampling treats the cause (ties). Named context: in a POMDP the best *memoryless* policy can be strictly stochastic (Singh, Jaakkola & Jordan 1994); the principled training-side version is soft Q-learning / Munchausen DQN (Vieillard et al. 2020), and the "action gap" literature (Bellemare et al. 2016) is about exactly this fragility. Why T≈1 and not 5: see §33 - the Q scale was ~7, so T=1 was already a hot temperature.
+
+## 33. The Q-values were 30x too small, and the loss function was the plateau (runs 032-033)
+
+Asked directly "how is the Q gap so low when the reveal reward is 50?", the answer turned out to be that the Q-*values* were low, uniformly. Calibration on 029's 390k checkpoint (`agent/q_calibration.py`): Q(s, a_taken) vs the realized discounted return G_t from the same point:
+
+| phase | Q median | G median | Q/G | fraction of transitions with reward > 1 |
+|---|---|---|---|---|
+| at the deal | 36 | 632 | 0.06 | - |
+| t < 25 | 16 | 462 | 0.04 | 28% |
+| 25-100 | 11 | 344 | 0.03 | 12% |
+| 100-300 | 8 | 226 | 0.03 | 9% |
+| 300-1000 | 6 | -1 | - | 3.5% |
+
+**Mechanism.** `F.smooth_l1_loss` with β=1 is quadratic below |error|=1 and linear above, where the per-sample gradient is exactly ±1 *regardless of error size*. With rewards of 50/5000, every reward-bearing transition is in the linear region, so a reward of 50, 5, or 5000 produces the same gradient. From a typical state a fraction *p* of transitions carry a big reward (gradient +1 each, saturated) and the rest carry ~0 (target ≈ γQ, gradient ≈ (1-γ)Q, quadratic). They balance at
+
+**Q\* ≈ p / ((1-p)(1-γ))**
+
+which contains the reward *frequency* and not its *magnitude*. Overall p = 6.6% → Q\* ≈ 7 (measured median 7); early game p = 28% → 40 (measured 36 at the deal); mid-game 12% → 13 (measured 11); late 8.6% → 9 (measured 8). The "converged" training loss fits too (≈ p × 50 ≈ 3.3 vs the logged ~2.5). Huber at this scale is median regression, and the median of a reward stream that is zero 93% of the time ignores the spikes. In effect runs 001-031 trained under Atari-style reward clipping without anyone choosing it.
+
+That retroactively reinterprets most of the reward-shaping history: §11's 10x rescale and 100→5000 win bonus, §28's undo-penalty 5 vs 20 ("statistically identical, so undos are load-bearing" - both penalties are the *same gradient*), and §30's foundation ramp were all invisible to the optimizer beyond their sign. The named literature fixes are the transformed Bellman operator (Pohlen et al. 2018, "Observe and Look Further"), PopArt (van Hasselt et al. 2016) and distributional Q; the one-line fix is a mean-regressing loss.
+
+**Code**: `--td-loss {huber,mse}` and `--huber-beta` in `agent/train.py` (defaults reproduce 001-031 bit-for-bit, verified); `evaluate()` now logs `eval_q0` (greedy Q at the deal) and `eval_g0` (realized discounted return) with a fourth "value calibration" eval-plot panel; the training-loss panel goes log-scale when the range spans >3 orders of magnitude.
+
+**Runs 032 (seed 0) and 033 (seed 1)**: run 029/030's exact recipe with `--td-loss mse` and nothing else changed. Paired by seed:
+
+| window | 029 → 032 (seed 0) | 030 → 033 (seed 1) |
+|---|---|---|
+| Q1 (10k-100k) | 29.6% → 22.3% (−7.3) | 31.5% → 25.6% (−5.9) |
+| Q2 | 27.6% → 36.4% (+8.9) | 29.3% → 38.4% (+9.1) |
+| Q3 | 28.3% → 38.9% (+10.6) | 30.0% → 39.8% (+9.7) |
+| Q4 | 30.6% → 38.9% (+8.3) | 30.2% → 40.2% (+10.0) |
+| **second half** | **29.4% → 38.9% (+9.4)** | **30.1% → 40.0% (+9.8)** |
+| second-half checkpoint SD | 0.068 → 0.020 | 0.083 → 0.021 |
+
+Pooled second half: **MSE 39.4% vs Huber 29.8%** (+9.6). 032 beat 029 at 20/20 second-half checkpoints, 033 beat 030 at 19/20; all six post-Q1 quarter pairs land between +8.3 and +10.6. Calibration converged identically on both seeds - q0/g0 at 20k/100k/200k/300k/400k: 10.5 / 3.2 / 2.2 / 1.5 / **1.06** (032) and 10.5 / 3.3 / 2.1 / 1.5 / **1.13** (033): an early overshoot (the +5000 win transitions in the PER-boosted demo region, now actually visible) that Double DQN then reins in. Both final checkpoints sit inside their run's band (36.5%, 42.5%), where 029's was a 16% trough. 033's 130k checkpoint (44.0%) is the highest single argmax eval in the project.
+
+**The one cost replicated too**: a slow first quarter (−7, −6). Under MSE the early TD loss is ~10⁵, so the DQfD margin term (weight 1.0, margin 0.8 - sized for a Huber-scale loss of ~2) is ~0.001% of the gradient and the fast imitation 029 got by step 10k is delayed to ~70k. The TD-vs-imitation balance was an implicit hyperparameter of the old loss scale.
+
+Lesson in one line: **a loss with a saturating gradient is an implicit reward clip, and every reward-design experiment run under it was blind.**
+
+## 34. Current state and scoped next steps (2026-10-02)
+
+**Where things stand**: recipe = DQfD (100k demos) + ε floor 0.15 + loop-breaker + solvable-seed curriculum + **MSE TD loss**; ~40% argmax win rate on the 200-deal battery, stable across checkpoints (SD 0.02) and replicated on two seeds. The heuristic teacher is at 18.5%. Softmax action selection added +12-19 points on the *uncalibrated* network; whether it still adds anything on the calibrated one is the first open question. Early read from a 4-deal smoke test of 033's final checkpoint: median top-1/top-2 Q gap 7.98 (vs 0.19), only 7% of decisions under 1.0 - to be confirmed on the full battery.
+
+**Methodology changes adopted from here**: two seeds per configuration before attributing anything; report second-half means, not finals; `eval_q0` vs `eval_g0` is a first-class metric; model selection by validation battery rather than `checkpoint_final`.
+
+**Scoped next steps, in order** (none started):
+1. **Softmax re-check on 032/033** (`agent/eval_action_selection.py`, ~4 min per variant, no training): T ∈ {0, 0.5, 1, 2, 5, 10, 30} with and without the loop-breaker, plus the Q-gap distribution. Decides whether stochastic selection / soft-Q training is still worth pursuing or whether calibration already did that job.
+2. **Fix the slow start**: the DQfD margin weight needs to scale with the TD loss. Candidates: a DQfD-paper pretraining phase (demos only, before self-play), or `--margin-loss-weight` raised to the MSE scale, or normalizing the TD loss. One change vs 032, two seeds.
+3. **Re-run the reward-shaping experiments the old loss made blind**, paired seeds vs 032/033: undo penalty (5 vs 20 are now different gradients - §28's "load-bearing undo" conclusion is open again), the foundation ramp, and the win-bonus magnitude (100 vs 5000 is now a real question). Also fix `dqfd_demos.py` to pass the env kwargs through - runs 026-028's demos were built under the unshaped reward.
+4. **Patience truncation for training episodes** (end after ~100 steps with no reward > 1; eval keeps the 1000 cap): targets the 45% thrash share, should roughly triple games per run.
+5. **Observation fixes**: `stock_size`/`waste_size` (dropped with a never-revisited TODO), `draws_since_progress`, and the waste-pile contents (a human has seen them). Measure the Q-gap distribution before/after - aliased states are a candidate source of the remaining ties.
+6. **γ = 0.997** (horizon ~333 vs ~100 against 150-500-step games), paired with n-step 5-10.
+7. **Loop-breaker ablation** that §22 skipped: eval-only vs in-training, two seeds each, now on the MSE recipe.
+8. **Longer run** (1.2M) of the MSE recipe: 032/033's Q3→Q4 is flat (38.9→38.9, 39.8→40.2), so a new plateau is plausible; one long run decides it.
+9. **Privileged-information ceiling** (hidden cards visible): separates the information cost from the learning cost, which nothing so far can.
+10. Still-open learning ideas from §31 and the review: afterstate V(s′), MaskablePPO (the env already exposes `action_masks()`), Munchausen DQN, dueling/distributional heads, primacy-bias resets / ReDo against the measured rank collapse, test-time search, the multi-head/MoE idea.
